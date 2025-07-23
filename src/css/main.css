@@ -1,0 +1,40 @@
+window,
+.main-bg {
+    background-color: #23272e;
+    color: #f5f6fa;
+}
+.status-bar {
+    background-color: #2d323b;
+    color: #f5f6fa;
+    border: 1px solid #353b45;
+}
+.menu-bar {
+    background-color: #23272e;
+    color: #f5f6fa;
+    border: 1px solid #353b45;
+}
+.mailbox {
+    background-color: #23272e;
+    border: 1px solid #353b45;
+}
+.content-area {
+    background-color: #23272e;
+    border: 1px solid #353b45;
+}
+.column-border {
+    border: 1px solid #353b45;
+}
+button.flat {
+    background: none;
+    border: none;
+    color: #f5f6fa;
+}
+button.flat:hover {
+    background: #353b45;
+}
+list {
+    background-color: #23272e;
+}
+list row:selected {
+    background-color: #353b45;
+}

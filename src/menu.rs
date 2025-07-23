@@ -14,30 +14,9 @@ pub struct MenuBar {
 impl MenuBar {
     pub fn new() -> Self {
         // --- CSS for dark menu styling ---
-        let css = "
-            .menu-bar {
-                background-color: #23272e;
-            }
-            .menu-btn {
-                background: none;
-                border: none;
-                color: #f5f6fa;
-                padding: 8px 18px;
-                border-radius: 8px;
-                font-size: 1rem;
-                font-weight: 500;
-                transition: background 0.2s;
-            }
-            .menu-btn:hover {
-                background: #353b45;
-                color: #ffffff;
-            }
-            .menu-btn image {
-                color: #f5f6fa;
-            }
-        ";
         let provider = CssProvider::new();
-        provider.load_from_data(css);
+        provider.load_from_path("src/css/menu.css");
+
         let display = Display::default().expect("Failed to get default display");
         gtk4::style_context_add_provider_for_display(
             &display,

@@ -1,5 +1,4 @@
 // src/main.rs
-
 mod mailbox;
 mod menu;
 
@@ -23,44 +22,9 @@ fn main() {
 }
 
 fn build_ui(app: &Application) {
-    // --- CSS for dark theme ---
-    let css = "
-        window, .main-bg {
-            background-color: #23272e;
-            color: #f5f6fa;
-        }
-        .status-bar {
-            background-color: #2d323b;
-            color: #f5f6fa;
-        }
-        .menu-bar {
-            background-color: #23272e;
-            color: #f5f6fa;
-        }
-        .mailbox {
-            background-color: #23272e;
-        }
-        .content-area {
-            background-color: #23272e;
-        }
-        button.flat {
-            background: none;
-            border: none;
-            color: #f5f6fa;
-        }
-        button.flat:hover {
-            background: #353b45;
-        }
-        list {
-            background-color: #23272e;
-        }
-        list row:selected {
-            background-color: #353b45;
-        }
-    ";
-
+    // Load CSS from external file
     let provider = CssProvider::new();
-    provider.load_from_data(css);
+    provider.load_from_path("src/css/main.css");
 
     let display = Display::default().expect("Failed to get default display");
     gtk4::style_context_add_provider_for_display(
@@ -118,6 +82,9 @@ fn build_ui(app: &Application) {
     let message_list_area = GtkBox::new(Orientation::Vertical, 10);
     message_list_area.set_hexpand(true);
     message_list_area.set_vexpand(true);
+    message_list_area.add_css_class("column-border");
+
+    // <-- New class added
     let message_list_label = Label::new(Some("Message List"));
     message_list_label.set_halign(Align::Center);
     message_list_label.set_valign(Align::Start);
@@ -128,6 +95,9 @@ fn build_ui(app: &Application) {
     content_display_area.set_hexpand(false);
     content_display_area.set_vexpand(true);
     content_display_area.set_width_request(90);
+    content_display_area.add_css_class("column-border");
+
+    // <-- New class added
     let content_display_label = Label::new(Some("Content Display"));
     content_display_label.set_halign(Align::Center);
     content_display_label.set_valign(Align::Start);

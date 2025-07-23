@@ -19,33 +19,9 @@ pub struct Mailbox {
 impl Mailbox {
     pub fn new(folders: &[Folder]) -> Self {
         // --- CSS for dark mailbox styling ---
-        let css = "
-            .mailbox {
-                background-color: #23272e;
-            }
-            .mailbox-list {
-                background-color: #23272e;
-            }
-            .mailbox-row {
-                background: none;
-                color: #f5f6fa;
-                font-size: 1rem;
-                font-weight: 500;
-                border-radius: 6px;
-                padding: 4px 8px;
-            }
-            .mailbox-row:hover {
-                background: #353b45;
-            }
-            .mailbox-row:selected {
-                background: #353b45;
-            }
-            .mailbox-label {
-                color: #f5f6fa;
-            }
-        ";
         let provider = CssProvider::new();
-        provider.load_from_data(css);
+        provider.load_from_path("src/css/mailbox.css");
+
         let display = Display::default().expect("Failed to get default display");
         gtk4::style_context_add_provider_for_display(
             &display,

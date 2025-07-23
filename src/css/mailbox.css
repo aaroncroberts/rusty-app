@@ -1,0 +1,23 @@
+.mailbox {
+    background-color: #23272e;
+}
+.mailbox-list {
+    background-color: #23272e;
+}
+.mailbox-row {
+    background: none;
+    color: #f5f6fa;
+    font-size: 1rem;
+    font-weight: 500;
+    border-radius: 6px;
+    padding: 4px 8px;
+}
+.mailbox-row:hover {
+    background: #353b45;
+}
+.mailbox-row:selected {
+    background: #353b45;
+}
+.mailbox-label {
+    color: #f5f6fa;
+}
