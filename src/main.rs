@@ -14,7 +14,7 @@ use menu::MenuBar;
 
 fn main() {
     let app = Application::builder()
-        .application_id("com.example.PGPMailClient")
+        .application_id("com.example.rusty-app")
         .build();
 
     app.connect_activate(build_ui);
@@ -71,7 +71,7 @@ fn build_ui(app: &Application) {
 
     let window = ApplicationWindow::builder()
         .application(app)
-        .title("PGP Mail Client")
+        .title("rusty-app: v0.0.1")
         .default_width(900)
         .default_height(600)
         .build();
