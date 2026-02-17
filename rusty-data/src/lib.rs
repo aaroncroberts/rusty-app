@@ -50,5 +50,5 @@ pub mod config;
 pub mod error;
 
 // Optional database adapter modules (enabled via features)
-#[cfg(feature = "postgres")]
+#[cfg(any(feature = "postgres", feature = "mysql", feature = "sqlite"))]
 pub mod adapters;
