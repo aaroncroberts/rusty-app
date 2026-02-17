@@ -14,6 +14,9 @@ pub struct LoggingConfig {
     /// Console output format
     pub(crate) console_format: ConsoleFormat,
 
+    /// Console output writer (stdout/stderr)
+    pub(crate) console_writer: ConsoleWriter,
+
     /// Whether console output is enabled
     pub(crate) console_enabled: bool,
 }
@@ -26,6 +29,16 @@ pub enum ConsoleFormat {
 
     /// Compact format with minimal output (production)
     Compact,
+}
+
+/// Console output writer
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConsoleWriter {
+    /// Write to stdout
+    Stdout,
+
+    /// Write to stderr (default)
+    Stderr,
 }
 
 impl LoggingConfig {
@@ -59,24 +72,51 @@ impl LoggingConfig {
         let registry = tracing_subscriber::registry().with(env_filter);
 
         if self.console_enabled {
-            match self.console_format {
-                ConsoleFormat::Pretty => {
+            match (self.console_format, self.console_writer) {
+                (ConsoleFormat::Pretty, ConsoleWriter::Stdout) => {
                     let layer = fmt::layer()
                         .pretty()
                         .with_target(true)
                         .with_thread_ids(true)
                         .with_file(true)
-                        .with_line_number(true);
+                        .with_line_number(true)
+                        .with_writer(std::io::stdout);
 
                     registry
                         .with(layer)
                         .try_init()
                         .map_err(|e| LoggingError::InitError(format!("Failed to initialize: {}", e)))?;
                 }
-                ConsoleFormat::Compact => {
+                (ConsoleFormat::Pretty, ConsoleWriter::Stderr) => {
+                    let layer = fmt::layer()
+                        .pretty()
+                        .with_target(true)
+                        .with_thread_ids(true)
+                        .with_file(true)
+                        .with_line_number(true)
+                        .with_writer(std::io::stderr);
+
+                    registry
+                        .with(layer)
+                        .try_init()
+                        .map_err(|e| LoggingError::InitError(format!("Failed to initialize: {}", e)))?;
+                }
+                (ConsoleFormat::Compact, ConsoleWriter::Stdout) => {
                     let layer = fmt::layer()
                         .compact()
-                        .with_target(true);
+                        .with_target(true)
+                        .with_writer(std::io::stdout);
+
+                    registry
+                        .with(layer)
+                        .try_init()
+                        .map_err(|e| LoggingError::InitError(format!("Failed to initialize: {}", e)))?;
+                }
+                (ConsoleFormat::Compact, ConsoleWriter::Stderr) => {
+                    let layer = fmt::layer()
+                        .compact()
+                        .with_target(true)
+                        .with_writer(std::io::stderr);
 
                     registry
                         .with(layer)
@@ -102,6 +142,7 @@ impl LoggingConfig {
 pub struct LoggingConfigBuilder {
     filter: String,
     console_format: ConsoleFormat,
+    console_writer: ConsoleWriter,
     console_enabled: bool,
 }
 
@@ -110,6 +151,7 @@ impl Default for LoggingConfigBuilder {
         Self {
             filter: "info".to_string(),
             console_format: ConsoleFormat::Pretty,
+            console_writer: ConsoleWriter::Stderr,
             console_enabled: true,
         }
     }
@@ -173,6 +215,42 @@ impl LoggingConfigBuilder {
         self
     }
 
+    /// Set console output to stdout
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rusty_logging::LoggingConfig;
+    ///
+    /// let config = LoggingConfig::builder()
+    ///     .with_console_stdout()
+    ///     .build()
+    ///     .unwrap();
+    /// ```
+    pub fn with_console_stdout(mut self) -> Self {
+        self.console_writer = ConsoleWriter::Stdout;
+        self.console_enabled = true;
+        self
+    }
+
+    /// Set console output to stderr (default)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rusty_logging::LoggingConfig;
+    ///
+    /// let config = LoggingConfig::builder()
+    ///     .with_console_stderr()
+    ///     .build()
+    ///     .unwrap();
+    /// ```
+    pub fn with_console_stderr(mut self) -> Self {
+        self.console_writer = ConsoleWriter::Stderr;
+        self.console_enabled = true;
+        self
+    }
+
     /// Disable console output
     ///
     /// # Examples
@@ -203,6 +281,7 @@ impl LoggingConfigBuilder {
         Ok(LoggingConfig {
             filter: self.filter,
             console_format: self.console_format,
+            console_writer: self.console_writer,
             console_enabled: self.console_enabled,
         })
     }
