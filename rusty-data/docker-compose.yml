@@ -12,7 +12,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - /Users/aaron/Docker/icitadel-dev-postgres:/var/lib/postgresql/data
+      - ~/Docker/icitadel-dev-postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U test_user -d test_db"]
       interval: 10s
@@ -32,7 +32,7 @@ services:
     ports:
       - "3306:3306"
     volumes:
-      - /Users/aaron/Docker/icitadel-dev-mysql:/var/lib/mysql
+      - ~/Docker/icitadel-dev-mysql:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "test_user", "-ptest_password"]
       interval: 10s
@@ -51,7 +51,7 @@ services:
     ports:
       - "27017:27017"
     volumes:
-      - /Users/aaron/Docker/icitadel-dev-mongodb:/data/db
+      - ~/Docker/icitadel-dev-mongodb:/data/db
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
@@ -70,7 +70,7 @@ services:
     ports:
       - "1433:1433"
     volumes:
-      - /Users/aaron/Docker/icitadel-dev-mssql:/var/opt/mssql
+      - ~/Docker/icitadel-dev-mssql:/var/opt/mssql
     healthcheck:
       test: ["CMD-SHELL", "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P TestPassword123! -Q 'SELECT 1'"]
       interval: 10s
@@ -89,7 +89,7 @@ services:
     ports:
       - "1521:1521"
     volumes:
-      - /Users/aaron/Docker/icitadel-dev-oracle:/opt/oracle/oradata
+      - ~/Docker/icitadel-dev-oracle:/opt/oracle/oradata
     healthcheck:
       test: ["CMD-SHELL", "healthcheck.sh"]
       interval: 30s
@@ -98,5 +98,6 @@ services:
     restart: unless-stopped
     shm_size: 1gb
 
-# Volume directories are bind-mounted to /Users/aaron/Docker/{container-name}
+# Volume directories are bind-mounted to ~/Docker/{container-name}
 # This allows for easy backup, inspection, and persistence across docker-compose down
+# The tilde (~) expands to the current user's home directory for portability

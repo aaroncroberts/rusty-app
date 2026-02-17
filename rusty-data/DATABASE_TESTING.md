@@ -174,11 +174,11 @@ docker-compose up -d icitadel-dev-postgres && \
 
 All databases use bind mounts to persist data in local directories:
 
-- `/Users/aaron/Docker/icitadel-dev-postgres` - PostgreSQL data
-- `/Users/aaron/Docker/icitadel-dev-mysql` - MySQL data
-- `/Users/aaron/Docker/icitadel-dev-mongodb` - MongoDB data
-- `/Users/aaron/Docker/icitadel-dev-mssql` - SQL Server data
-- `/Users/aaron/Docker/icitadel-dev-oracle` - Oracle data
+- `~/Docker/icitadel-dev-postgres` - PostgreSQL data
+- `~/Docker/icitadel-dev-mysql` - MySQL data
+- `~/Docker/icitadel-dev-mongodb` - MongoDB data
+- `~/Docker/icitadel-dev-mssql` - SQL Server data
+- `~/Docker/icitadel-dev-oracle` - Oracle data
 
 Benefits of bind mounts:
 - Data persists across container restarts and `docker-compose down`
@@ -193,7 +193,7 @@ To reset a database:
 docker-compose down
 
 # Remove the data directory
-rm -rf /Users/aaron/Docker/icitadel-dev-postgres
+rm -rf ~/Docker/icitadel-dev-postgres
 
 # Restart (will create fresh database)
 docker-compose up -d icitadel-dev-postgres
