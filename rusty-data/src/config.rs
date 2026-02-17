@@ -26,6 +26,12 @@ pub struct EncryptedCredentials {
     pub salt: String,
 }
 
+/// Wrapper for serializing connection list to TOML
+#[derive(Debug, Serialize, Deserialize)]
+struct ConnectionsFile {
+    connections: Vec<ConnectionConfig>,
+}
+
 impl ConfigManager {
     /// Create a new configuration manager
     pub fn new<P: AsRef<Path>>(config_dir: P) -> Result<Self> {
@@ -54,17 +60,98 @@ impl ConfigManager {
         }
 
         let contents = fs::read_to_string(&path)?;
-        let connections: Vec<ConnectionConfig> = toml::from_str(&contents)?;
+        let file: ConnectionsFile = toml::from_str(&contents)?;
 
-        Ok(connections)
+        Ok(file.connections)
     }
 
     /// Save connection configurations to file
     pub fn save_connections(&self, connections: &[ConnectionConfig]) -> Result<()> {
-        let contents = toml::to_string_pretty(connections)?;
+        // Validate all connections before saving
+        Self::validate_connections(connections)?;
+
+        let file = ConnectionsFile {
+            connections: connections.to_vec(),
+        };
+        let contents = toml::to_string_pretty(&file)?;
         let path = self.connections_file();
 
         fs::write(&path, contents)?;
+
+        Ok(())
+    }
+
+    /// Validate a list of connections
+    pub fn validate_connections(connections: &[ConnectionConfig]) -> Result<()> {
+        // Check for duplicate IDs
+        let mut seen_ids = std::collections::HashSet::new();
+        for conn in connections {
+            if !seen_ids.insert(&conn.id) {
+                return Err(DataError::Config(format!(
+                    "Duplicate connection ID: {}",
+                    conn.id
+                )));
+            }
+
+            // Validate individual connection
+            Self::validate_connection(conn)?;
+        }
+
+        Ok(())
+    }
+
+    /// Validate a single connection configuration
+    pub fn validate_connection(config: &ConnectionConfig) -> Result<()> {
+        use crate::adapter::DatabaseType;
+
+        // Validate ID is not empty
+        if config.id.trim().is_empty() {
+            return Err(DataError::Config("Connection ID cannot be empty".to_string()));
+        }
+
+        // Validate database name is not empty
+        if config.database.trim().is_empty() {
+            return Err(DataError::Config("Database name cannot be empty".to_string()));
+        }
+
+        // For non-file-based databases, host is required
+        match config.db_type {
+            DatabaseType::SQLite => {
+                // SQLite uses database field as file path, host/port are optional
+            }
+            DatabaseType::Postgres | DatabaseType::MySQL => {
+                if config.host.is_none() || config.host.as_ref().unwrap().trim().is_empty() {
+                    return Err(DataError::Config(format!(
+                        "{:?} requires a host address",
+                        config.db_type
+                    )));
+                }
+            }
+        }
+
+        // Validate port range if provided
+        if let Some(port) = config.port {
+            if port == 0 {
+                return Err(DataError::Config(
+                    "Invalid port number: 0. Must be between 1 and 65535".to_string()
+                ));
+            }
+        }
+
+        // For server databases, port should be specified
+        match config.db_type {
+            DatabaseType::Postgres | DatabaseType::MySQL => {
+                if config.port.is_none() {
+                    return Err(DataError::Config(format!(
+                        "{:?} requires a port number",
+                        config.db_type
+                    )));
+                }
+            }
+            DatabaseType::SQLite => {
+                // Port not required for SQLite
+            }
+        }
 
         Ok(())
     }
@@ -188,5 +275,291 @@ mod tests {
         let expanded = expand_home_dir(path).unwrap();
 
         assert!(!expanded.to_string_lossy().contains('~'));
+    }
+
+    #[test]
+    fn test_config_manager_creation() {
+        use std::env;
+        let temp_dir = env::temp_dir().join("rusty-data-test-config");
+
+        let _manager = ConfigManager::new(&temp_dir).unwrap();
+        assert!(temp_dir.exists());
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_load_connections_missing_file() {
+        use std::env;
+        let temp_dir = env::temp_dir().join("rusty-data-test-missing");
+
+        let manager = ConfigManager::new(&temp_dir).unwrap();
+        let connections = manager.load_connections().unwrap();
+
+        assert_eq!(connections.len(), 0);
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_save_and_load_connections() {
+        use std::env;
+        use std::collections::HashMap;
+        use crate::adapter::DatabaseType;
+
+        let temp_dir = env::temp_dir().join("rusty-data-test-save-load");
+
+        let manager = ConfigManager::new(&temp_dir).unwrap();
+
+        // Create test connections
+        let connections = vec![
+            ConnectionConfig {
+                id: "test-pg".to_string(),
+                name: "Test Postgres".to_string(),
+                db_type: DatabaseType::Postgres,
+                host: Some("localhost".to_string()),
+                port: Some(5432),
+                database: "testdb".to_string(),
+                username: Some("testuser".to_string()),
+                use_ssl: false,
+                parameters: HashMap::new(),
+            },
+            ConnectionConfig {
+                id: "test-mysql".to_string(),
+                name: "Test MySQL".to_string(),
+                db_type: DatabaseType::MySQL,
+                host: Some("127.0.0.1".to_string()),
+                port: Some(3306),
+                database: "mydb".to_string(),
+                username: Some("root".to_string()),
+                use_ssl: true,
+                parameters: HashMap::new(),
+            },
+        ];
+
+        // Save connections
+        manager.save_connections(&connections).unwrap();
+
+        // Load connections
+        let loaded = manager.load_connections().unwrap();
+
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[0].id, "test-pg");
+        assert_eq!(loaded[0].db_type, DatabaseType::Postgres);
+        assert_eq!(loaded[1].id, "test-mysql");
+        assert_eq!(loaded[1].use_ssl, true);
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_connections_file_path() {
+        use std::env;
+        let temp_dir = env::temp_dir().join("rusty-data-test-path");
+
+        let _manager = ConfigManager::new(&temp_dir).unwrap();
+        let path = _manager.connections_file();
+
+        assert_eq!(path, temp_dir.join("connections.toml"));
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_validate_empty_id() {
+        use std::collections::HashMap;
+        use crate::adapter::DatabaseType;
+
+        let config = ConnectionConfig {
+            id: "".to_string(),
+            name: "Test".to_string(),
+            db_type: DatabaseType::Postgres,
+            host: Some("localhost".to_string()),
+            port: Some(5432),
+            database: "testdb".to_string(),
+            username: Some("user".to_string()),
+            use_ssl: false,
+            parameters: HashMap::new(),
+        };
+
+        let result = ConfigManager::validate_connection(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("ID cannot be empty"));
+    }
+
+    #[test]
+    fn test_validate_empty_database() {
+        use std::collections::HashMap;
+        use crate::adapter::DatabaseType;
+
+        let config = ConnectionConfig {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            db_type: DatabaseType::Postgres,
+            host: Some("localhost".to_string()),
+            port: Some(5432),
+            database: "".to_string(),
+            username: Some("user".to_string()),
+            use_ssl: false,
+            parameters: HashMap::new(),
+        };
+
+        let result = ConfigManager::validate_connection(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Database name cannot be empty"));
+    }
+
+    #[test]
+    fn test_validate_missing_host_for_postgres() {
+        use std::collections::HashMap;
+        use crate::adapter::DatabaseType;
+
+        let config = ConnectionConfig {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            db_type: DatabaseType::Postgres,
+            host: None,
+            port: Some(5432),
+            database: "testdb".to_string(),
+            username: Some("user".to_string()),
+            use_ssl: false,
+            parameters: HashMap::new(),
+        };
+
+        let result = ConfigManager::validate_connection(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("requires a host"));
+    }
+
+    #[test]
+    fn test_validate_missing_port_for_mysql() {
+        use std::collections::HashMap;
+        use crate::adapter::DatabaseType;
+
+        let config = ConnectionConfig {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            db_type: DatabaseType::MySQL,
+            host: Some("localhost".to_string()),
+            port: None,
+            database: "testdb".to_string(),
+            username: Some("user".to_string()),
+            use_ssl: false,
+            parameters: HashMap::new(),
+        };
+
+        let result = ConfigManager::validate_connection(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("requires a port"));
+    }
+
+    #[test]
+    fn test_validate_invalid_port() {
+        use std::collections::HashMap;
+        use crate::adapter::DatabaseType;
+
+        let config = ConnectionConfig {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            db_type: DatabaseType::Postgres,
+            host: Some("localhost".to_string()),
+            port: Some(0), // Port 0 is invalid
+            database: "testdb".to_string(),
+            username: Some("user".to_string()),
+            use_ssl: false,
+            parameters: HashMap::new(),
+        };
+
+        let result = ConfigManager::validate_connection(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid port"));
+    }
+
+    #[test]
+    fn test_validate_sqlite_no_host_required() {
+        use std::collections::HashMap;
+        use crate::adapter::DatabaseType;
+
+        let config = ConnectionConfig {
+            id: "test".to_string(),
+            name: "Test SQLite".to_string(),
+            db_type: DatabaseType::SQLite,
+            host: None,
+            port: None,
+            database: "/path/to/database.db".to_string(),
+            username: None,
+            use_ssl: false,
+            parameters: HashMap::new(),
+        };
+
+        let result = ConfigManager::validate_connection(&config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_duplicate_ids() {
+        use std::collections::HashMap;
+        use crate::adapter::DatabaseType;
+        use std::env;
+
+        let temp_dir = env::temp_dir().join("rusty-data-test-duplicate");
+        let manager = ConfigManager::new(&temp_dir).unwrap();
+
+        let connections = vec![
+            ConnectionConfig {
+                id: "duplicate".to_string(),
+                name: "First".to_string(),
+                db_type: DatabaseType::Postgres,
+                host: Some("localhost".to_string()),
+                port: Some(5432),
+                database: "db1".to_string(),
+                username: Some("user".to_string()),
+                use_ssl: false,
+                parameters: HashMap::new(),
+            },
+            ConnectionConfig {
+                id: "duplicate".to_string(),
+                name: "Second".to_string(),
+                db_type: DatabaseType::MySQL,
+                host: Some("localhost".to_string()),
+                port: Some(3306),
+                database: "db2".to_string(),
+                username: Some("user".to_string()),
+                use_ssl: false,
+                parameters: HashMap::new(),
+            },
+        ];
+
+        let result = manager.save_connections(&connections);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Duplicate connection ID"));
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_valid_postgres_connection() {
+        use std::collections::HashMap;
+        use crate::adapter::DatabaseType;
+
+        let config = ConnectionConfig {
+            id: "valid-pg".to_string(),
+            name: "Valid Postgres".to_string(),
+            db_type: DatabaseType::Postgres,
+            host: Some("localhost".to_string()),
+            port: Some(5432),
+            database: "testdb".to_string(),
+            username: Some("user".to_string()),
+            use_ssl: false,
+            parameters: HashMap::new(),
+        };
+
+        let result = ConfigManager::validate_connection(&config);
+        assert!(result.is_ok());
     }
 }
