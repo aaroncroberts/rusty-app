@@ -14,7 +14,7 @@ pub enum MenuItem {
     Edit,
     View,
     Tools,
-    AddConnection,
+    NewConnection,
 }
 
 impl MenuItem {
@@ -25,11 +25,11 @@ impl MenuItem {
             MenuItem::Edit => "Edit",
             MenuItem::View => "View",
             MenuItem::Tools => "Tools",
-            MenuItem::AddConnection => "Add Connection",
+            MenuItem::NewConnection => "File > New > Connection",
         }
     }
 
-    /// Get all menu items in order
+    /// Get all top-level menu items in order
     pub fn all() -> &'static [MenuItem] {
         &[MenuItem::File, MenuItem::Edit, MenuItem::View, MenuItem::Tools]
     }
@@ -147,6 +147,7 @@ mod tests {
         assert_eq!(MenuItem::Edit.name(), "Edit");
         assert_eq!(MenuItem::View.name(), "View");
         assert_eq!(MenuItem::Tools.name(), "Tools");
+        assert_eq!(MenuItem::NewConnection.name(), "File > New > Connection");
     }
 
     #[test]
