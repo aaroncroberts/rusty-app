@@ -2,6 +2,7 @@ use iced::widget::{column, container, row, text};
 use iced::{Center, Element, Fill, Task, Theme};
 use rusty_app::left_panel::{self, LeftPanel, PanelTab};
 use rusty_app::menu_bar::{MenuBar, MenuItem};
+use rusty_app::status_bar::StatusBar;
 use rusty_app::theme::ThemeColors;
 
 pub fn main() -> iced::Result {
@@ -15,6 +16,7 @@ struct DatabaseIDE {
     theme: ThemeColors,
     menu_bar: MenuBar,
     left_panel: LeftPanel,
+    status_bar: StatusBar,
     panel_width: f32,
     active_tab: PanelTab,
     is_resizing: bool,
