@@ -2,7 +2,7 @@ use iced::widget::{column, container, row, text};
 use iced::{Center, Element, Fill, Task, Theme};
 use rusty_app::left_panel::{self, LeftPanel, PanelTab};
 use rusty_app::menu_bar::{MenuBar, MenuItem};
-use rusty_app::status_bar::StatusBar;
+use rusty_app::status_bar::{ConnectionStatus, StatusBar};
 use rusty_app::theme::ThemeColors;
 
 pub fn main() -> iced::Result {
@@ -20,6 +20,7 @@ struct DatabaseIDE {
     panel_width: f32,
     active_tab: PanelTab,
     is_resizing: bool,
+    connection_status: ConnectionStatus,
 }
 
 impl Default for DatabaseIDE {
@@ -33,6 +34,7 @@ impl Default for DatabaseIDE {
             panel_width: left_panel::DEFAULT_WIDTH,
             active_tab: PanelTab::default(),
             is_resizing: false,
+            connection_status: ConnectionStatus::default(),
         }
     }
 }
@@ -143,6 +145,6 @@ impl DatabaseIDE {
     }
 
     fn render_status_bar(&self) -> Element<'_, Message> {
-        self.status_bar.view()
+        self.status_bar.view(self.connection_status)
     }
 }

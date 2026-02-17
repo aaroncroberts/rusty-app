@@ -10,6 +10,29 @@ use iced::{Border, Element, Fill};
 /// Height of the status bar in pixels
 pub const STATUS_BAR_HEIGHT: f32 = 30.0;
 
+/// Connection status for database connection indicator
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionStatus {
+    Disconnected,
+    Connected,
+}
+
+impl ConnectionStatus {
+    /// Get the display text for this connection status
+    pub fn text(&self) -> &'static str {
+        match self {
+            ConnectionStatus::Disconnected => "Disconnected",
+            ConnectionStatus::Connected => "Connected",
+        }
+    }
+}
+
+impl Default for ConnectionStatus {
+    fn default() -> Self {
+        ConnectionStatus::Disconnected
+    }
+}
+
 /// Status bar component that displays at the bottom of the window
 #[derive(Debug, Clone)]
 pub struct StatusBar {
@@ -22,15 +45,24 @@ impl StatusBar {
         Self { theme }
     }
 
-    /// Render the status bar component
-    pub fn view<'a, Message: 'a + Clone>(&'a self) -> Element<'a, Message> {
+    /// Render the status bar component with connection status
+    pub fn view<'a, Message: 'a + Clone>(
+        &'a self,
+        connection_status: ConnectionStatus,
+    ) -> Element<'a, Message> {
         let theme = self.theme;
 
-        // Status bar content (placeholder)
+        // Choose color based on connection status
+        let status_color = match connection_status {
+            ConnectionStatus::Disconnected => theme.text_secondary,
+            ConnectionStatus::Connected => theme.success,
+        };
+
+        // Status bar content with connection indicator
         let content = row![
-            text("Ready")
+            text(connection_status.text())
                 .size(12)
-                .color(theme.text_secondary),
+                .color(status_color),
         ]
         .padding([6, 15])
         .spacing(20);
@@ -95,5 +127,38 @@ mod tests {
             status_bar.theme.background_secondary,
             theme.background_secondary
         );
+    }
+
+    #[test]
+    fn test_connection_status_text() {
+        assert_eq!(ConnectionStatus::Disconnected.text(), "Disconnected");
+        assert_eq!(ConnectionStatus::Connected.text(), "Connected");
+    }
+
+    #[test]
+    fn test_connection_status_default() {
+        let default_status = ConnectionStatus::default();
+        assert_eq!(default_status, ConnectionStatus::Disconnected);
+    }
+
+    #[test]
+    fn test_connection_status_equality() {
+        assert_eq!(ConnectionStatus::Disconnected, ConnectionStatus::Disconnected);
+        assert_eq!(ConnectionStatus::Connected, ConnectionStatus::Connected);
+        assert_ne!(ConnectionStatus::Disconnected, ConnectionStatus::Connected);
+    }
+
+    #[test]
+    fn test_connection_status_debug() {
+        let status = ConnectionStatus::Disconnected;
+        let debug_str = format!("{:?}", status);
+        assert!(debug_str.contains("Disconnected"));
+    }
+
+    #[test]
+    fn test_connection_status_cloneable() {
+        let status = ConnectionStatus::Connected;
+        let cloned = status;
+        assert_eq!(status, cloned);
     }
 }
