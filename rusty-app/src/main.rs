@@ -29,6 +29,7 @@ impl Default for DatabaseIDE {
             theme,
             menu_bar: MenuBar::new(theme),
             left_panel: LeftPanel::new(theme),
+            status_bar: StatusBar::new(theme),
             panel_width: left_panel::DEFAULT_WIDTH,
             active_tab: PanelTab::default(),
             is_resizing: false,
@@ -75,10 +76,11 @@ impl DatabaseIDE {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        // Main layout with themed background
+        // Main layout: menu bar, content area, status bar (vertical stack)
         let layout = column![
             self.menu_bar(),
             self.content_area(),
+            self.render_status_bar(),
         ]
         .spacing(0);
 
@@ -138,5 +140,9 @@ impl DatabaseIDE {
         });
 
         panel.into()
+    }
+
+    fn render_status_bar(&self) -> Element<'_, Message> {
+        self.status_bar.view()
     }
 }
