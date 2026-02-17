@@ -11,7 +11,7 @@
 //! - **Log Levels**: TRACE, DEBUG, INFO, WARN, ERROR
 //! - **Categories**: Via tracing targets and spans
 //! - **Environment Config**: RUST_LOG environment variable
-//! - **File Rotation**: Size or time-based automatic rotation
+//! - **File Rotation**: Daily, hourly, minutely, or never
 //!
 //! # Quick Start
 //!
@@ -21,10 +21,32 @@
 //! // Simple console logging
 //! rusty_logging::init_default();
 //!
-//! // Custom configuration
+//! // Console with custom format
 //! LoggingConfig::builder()
 //!     .with_console_pretty()
 //!     .build()
+//!     .unwrap()
+//!     .apply()
+//!     .expect("Failed to initialize logging");
+//!
+//! // File output with daily rotation
+//! LoggingConfig::builder()
+//!     .with_file_text()
+//!     .with_file_directory("./logs")
+//!     .with_file_prefix("myapp")
+//!     .build()
+//!     .unwrap()
+//!     .apply()
+//!     .expect("Failed to initialize logging");
+//!
+//! // Dual output: console + JSON file
+//! LoggingConfig::builder()
+//!     .with_console_compact()
+//!     .with_file_json()
+//!     .with_rotation_policy(rusty_logging::RotationPolicy::Hourly)
+//!     .build()
+//!     .unwrap()
+//!     .apply()
 //!     .expect("Failed to initialize logging");
 //! ```
 
@@ -34,7 +56,9 @@ use tracing_subscriber::{fmt, EnvFilter};
 pub mod config;
 pub mod error;
 
-pub use config::{LoggingConfig, LoggingConfigBuilder};
+pub use config::{
+    ConsoleFormat, ConsoleWriter, FileFormat, LoggingConfig, LoggingConfigBuilder, RotationPolicy,
+};
 pub use error::{LoggingError, Result};
 
 /// Initialize logging with default settings (pretty console output, INFO level)
