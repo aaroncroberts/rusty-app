@@ -8,6 +8,10 @@ license.workspace = true
 [dependencies]
 # Internal dependencies
 rusty-data = { path = "../rusty-data" }
+rusty-logging = { path = "../rusty-logging" }
+
+# Logging (for tracing macros)
+tracing = "0.1"
 
 # UI Framework - Iced for modern, GPU-accelerated desktop UI
 iced = { version = "0.13", features = ["tokio", "debug"] }

@@ -6,6 +6,7 @@ use crate::error::{DataError, Result};
 use async_trait::async_trait;
 use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
 use sqlx::{Column, Row, TypeInfo};
+use tracing::{debug, info, instrument, warn};
 
 /// PostgreSQL database adapter using sqlx
 pub struct PostgresAdapter {
@@ -118,6 +119,11 @@ impl Default for PostgresAdapter {
 
 #[async_trait]
 impl DatabaseAdapter for PostgresAdapter {
+    #[instrument(skip(self, password), fields(
+        db = %config.database,
+        host = config.host.as_deref().unwrap_or("localhost"),
+        port = config.port.unwrap_or(5432)
+    ))]
     async fn connect(&mut self, config: &ConnectionConfig, password: Option<&str>) -> Result<()> {
         if config.db_type != DatabaseType::Postgres {
             return Err(DataError::Config(format!(
@@ -126,20 +132,27 @@ impl DatabaseAdapter for PostgresAdapter {
             )));
         }
 
+        info!("Connecting to PostgreSQL database");
         let connection_string = Self::build_connection_string(config, password);
 
         let pool = PgPoolOptions::new()
             .max_connections(5)
             .connect(&connection_string)
             .await
-            .map_err(|e| DataError::Connection(format!("Failed to connect: {}", e)))?;
+            .map_err(|e| {
+                warn!(error = %e, "Failed to connect to PostgreSQL");
+                DataError::Connection(format!("Failed to connect: {}", e))
+            })?;
 
         self.pool = Some(pool);
+        info!("Successfully connected to PostgreSQL");
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn disconnect(&mut self) -> Result<()> {
         if let Some(pool) = self.pool.take() {
+            info!("Disconnecting from PostgreSQL");
             pool.close().await;
         }
         Ok(())
@@ -149,7 +162,9 @@ impl DatabaseAdapter for PostgresAdapter {
         self.pool.is_some()
     }
 
+    #[instrument(skip(self, query), fields(query_len = query.len()))]
     async fn execute_query(&self, query: &str) -> Result<QueryResult> {
+        debug!("Executing query");
         let pool = self
             .pool
             .as_ref()

@@ -3519,9 +3519,11 @@ dependencies = [
  "anyhow",
  "iced",
  "rusty-data",
+ "rusty-logging",
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -3540,6 +3542,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "toml",
+ "tracing",
 ]
 
 [[package]]

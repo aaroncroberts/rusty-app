@@ -9,6 +9,7 @@ use argon2::password_hash::SaltString;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use tracing::{debug, info, instrument, warn};
 
 /// Manages application configuration and connection settings
 pub struct ConfigManager {
@@ -34,15 +35,18 @@ struct ConnectionsFile {
 
 impl ConfigManager {
     /// Create a new configuration manager
+    #[instrument(skip(config_dir), fields(config_dir = %config_dir.as_ref().display()))]
     pub fn new<P: AsRef<Path>>(config_dir: P) -> Result<Self> {
         let config_dir = expand_home_dir(config_dir.as_ref())?;
 
         if !config_dir.exists() {
+            info!("Creating config directory");
             fs::create_dir_all(&config_dir).map_err(|e| {
                 DataError::Config(format!("Failed to create config directory: {}", e))
             })?;
         }
 
+        debug!("ConfigManager initialized");
         Ok(Self { config_dir })
     }
 
@@ -52,20 +56,24 @@ impl ConfigManager {
     }
 
     /// Load connection configurations from file
+    #[instrument(skip(self))]
     pub fn load_connections(&self) -> Result<Vec<ConnectionConfig>> {
         let path = self.connections_file();
 
         if !path.exists() {
+            debug!("Connections file does not exist, returning empty list");
             return Ok(Vec::new());
         }
 
         let contents = fs::read_to_string(&path)?;
         let file: ConnectionsFile = toml::from_str(&contents)?;
 
+        info!(count = file.connections.len(), "Loaded connections");
         Ok(file.connections)
     }
 
     /// Save connection configurations to file
+    #[instrument(skip(self, connections), fields(count = connections.len()))]
     pub fn save_connections(&self, connections: &[ConnectionConfig]) -> Result<()> {
         // Validate all connections before saving
         Self::validate_connections(connections)?;
@@ -77,6 +85,7 @@ impl ConfigManager {
         let path = self.connections_file();
 
         fs::write(&path, contents)?;
+        info!("Saved connections");
 
         Ok(())
     }

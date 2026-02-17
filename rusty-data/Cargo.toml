@@ -19,6 +19,9 @@ toml = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 
+# Logging (abstract dependency - rusty-app provides concrete implementation)
+tracing = "0.1"
+
 # Encryption for credentials
 aes-gcm = { workspace = true }
 argon2 = { workspace = true }

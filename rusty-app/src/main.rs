@@ -5,8 +5,25 @@ use rusty_app::main_panel::{MainPanel, TabId};
 use rusty_app::menu_bar::{MenuBar, MenuItem};
 use rusty_app::status_bar::{ConnectionStatus, StatusBar};
 use rusty_app::theme::ThemeColors;
+use rusty_logging::LoggingConfig;
+use tracing::info;
 
 pub fn main() -> iced::Result {
+    // Initialize logging (fulfills rusty-data's logging needs via dependency inversion)
+    LoggingConfig::builder()
+        .with_console_compact()
+        .with_console_filter("info")
+        .with_file_text()
+        .with_file_filter("debug")
+        .with_file_directory("./logs")
+        .with_file_prefix("rusty-app")
+        .build()
+        .expect("Invalid logging configuration")
+        .apply()
+        .expect("Failed to initialize logging");
+
+    info!(version = env!("CARGO_PKG_VERSION"), "rusty-app starting");
+
     iced::application("Database IDE v0.0.1", DatabaseIDE::update, DatabaseIDE::view)
         .theme(|_| Theme::TokyoNightStorm)
         .window_size((1280.0, 800.0))
