@@ -4,7 +4,7 @@
 //! like servers, tables, and properties.
 
 use crate::theme::ThemeColors;
-use iced::widget::{column, container, horizontal_space, row, text};
+use iced::widget::{button, column, container, horizontal_space, row, text};
 use iced::{Border, Element, Fill, Length};
 
 /// Minimum width for the left panel in pixels
@@ -19,6 +19,36 @@ pub const DEFAULT_WIDTH: f32 = 200.0;
 /// Width of the resize handle in pixels
 const RESIZE_HANDLE_WIDTH: f32 = 4.0;
 
+/// Available tabs in the left panel
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelTab {
+    Servers,
+    Tables,
+    Properties,
+}
+
+impl PanelTab {
+    /// Get the display name for this tab
+    pub fn name(&self) -> &'static str {
+        match self {
+            PanelTab::Servers => "Servers",
+            PanelTab::Tables => "Tables",
+            PanelTab::Properties => "Properties",
+        }
+    }
+
+    /// Get all tabs in order
+    pub fn all() -> &'static [PanelTab] {
+        &[PanelTab::Servers, PanelTab::Tables, PanelTab::Properties]
+    }
+}
+
+impl Default for PanelTab {
+    fn default() -> Self {
+        PanelTab::Servers
+    }
+}
+
 /// Left panel component with resizable width
 #[derive(Debug, Clone)]
 pub struct LeftPanel {
@@ -31,24 +61,22 @@ impl LeftPanel {
         Self { theme }
     }
 
-    /// Render the left panel with current width
+    /// Render the left panel with current width and active tab
     pub fn view<'a, Message: 'a + Clone>(
         &'a self,
         width: f32,
+        active_tab: PanelTab,
+        on_tab_click: impl Fn(PanelTab) -> Message + 'a,
         _on_resize_start: Message,
     ) -> Element<'a, Message> {
         let theme = self.theme;
 
-        // Panel content
+        // Panel content with tab bar
         let content = column![
-            text("Servers").size(12).color(theme.text),
-            text("─────────").size(10).color(theme.border),
-            text("(No connections)")
-                .size(11)
-                .color(theme.text_secondary),
+            self.tab_bar(active_tab, on_tab_click),
+            self.tab_content(active_tab),
         ]
-        .spacing(10)
-        .padding(15);
+        .spacing(0);
 
         // Resize handle (vertical bar on right edge)
         let resize_handle = container(horizontal_space())
@@ -79,6 +107,107 @@ impl LeftPanel {
 
         container(panel_with_handle)
             .width(Length::Fixed(width))
+            .height(Fill)
+            .into()
+    }
+
+    /// Render the tab bar with clickable tabs
+    fn tab_bar<'a, Message: 'a + Clone>(
+        &'a self,
+        active_tab: PanelTab,
+        on_tab_click: impl Fn(PanelTab) -> Message + 'a,
+    ) -> Element<'a, Message> {
+        let theme = self.theme;
+
+        // Create tab buttons
+        let tabs = PanelTab::all()
+            .iter()
+            .fold(row![].spacing(0), |row, tab| {
+                let is_active = *tab == active_tab;
+
+                let tab_button = button(
+                    text(tab.name())
+                        .size(12)
+                        .color(if is_active { theme.text } else { theme.text_secondary })
+                )
+                .padding([8, 16])
+                .style(move |_theme, status| {
+                    let background = if is_active {
+                        Some(theme.accent.into())
+                    } else {
+                        match status {
+                            button::Status::Hovered => Some(theme.background_secondary.into()),
+                            _ => None,
+                        }
+                    };
+
+                    button::Style {
+                        background,
+                        text_color: if is_active { theme.text } else { theme.text_secondary },
+                        border: Border::default(),
+                        ..Default::default()
+                    }
+                })
+                .on_press(on_tab_click(*tab));
+
+                row.push(tab_button)
+            });
+
+        container(tabs)
+            .width(Fill)
+            .style(move |_| container::Style {
+                background: Some(theme.background_secondary.into()),
+                border: Border {
+                    color: theme.border,
+                    width: 1.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .into()
+    }
+
+    /// Render content for the active tab
+    fn tab_content<'a, Message: 'a + Clone>(
+        &'a self,
+        active_tab: PanelTab,
+    ) -> Element<'a, Message> {
+        let theme = self.theme;
+
+        let content = match active_tab {
+            PanelTab::Servers => column![
+                text("Servers").size(12).color(theme.text),
+                text("─────────").size(10).color(theme.border),
+                text("(No connections)")
+                    .size(11)
+                    .color(theme.text_secondary),
+            ]
+            .spacing(10)
+            .padding(15),
+
+            PanelTab::Tables => column![
+                text("Tables").size(12).color(theme.text),
+                text("─────────").size(10).color(theme.border),
+                text("(Select a server)")
+                    .size(11)
+                    .color(theme.text_secondary),
+            ]
+            .spacing(10)
+            .padding(15),
+
+            PanelTab::Properties => column![
+                text("Properties").size(12).color(theme.text),
+                text("─────────").size(10).color(theme.border),
+                text("(Select an object)")
+                    .size(11)
+                    .color(theme.text_secondary),
+            ]
+            .spacing(10)
+            .padding(15),
+        };
+
+        container(content)
+            .width(Fill)
             .height(Fill)
             .into()
     }
@@ -152,5 +281,48 @@ mod tests {
         assert_eq!(MIN_WIDTH, 120.0);
         assert_eq!(MAX_WIDTH, 400.0);
         assert_eq!(DEFAULT_WIDTH, 200.0);
+    }
+
+    #[test]
+    fn test_panel_tab_names() {
+        assert_eq!(PanelTab::Servers.name(), "Servers");
+        assert_eq!(PanelTab::Tables.name(), "Tables");
+        assert_eq!(PanelTab::Properties.name(), "Properties");
+    }
+
+    #[test]
+    fn test_panel_tab_all() {
+        let all = PanelTab::all();
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[0], PanelTab::Servers);
+        assert_eq!(all[1], PanelTab::Tables);
+        assert_eq!(all[2], PanelTab::Properties);
+    }
+
+    #[test]
+    fn test_panel_tab_default() {
+        let default = PanelTab::default();
+        assert_eq!(default, PanelTab::Servers);
+    }
+
+    #[test]
+    fn test_panel_tab_equality() {
+        assert_eq!(PanelTab::Servers, PanelTab::Servers);
+        assert_ne!(PanelTab::Servers, PanelTab::Tables);
+        assert_ne!(PanelTab::Tables, PanelTab::Properties);
+    }
+
+    #[test]
+    fn test_panel_tab_debug() {
+        let tab = PanelTab::Servers;
+        let debug_str = format!("{:?}", tab);
+        assert!(debug_str.contains("Servers"));
+    }
+
+    #[test]
+    fn test_panel_tab_cloneable() {
+        let tab = PanelTab::Servers;
+        let cloned = tab;
+        assert_eq!(tab, cloned);
     }
 }

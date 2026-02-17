@@ -1,6 +1,6 @@
 use iced::widget::{column, container, row, text};
 use iced::{Center, Element, Fill, Task, Theme};
-use rusty_app::left_panel::{self, LeftPanel};
+use rusty_app::left_panel::{self, LeftPanel, PanelTab};
 use rusty_app::menu_bar::{MenuBar, MenuItem};
 use rusty_app::theme::ThemeColors;
 
@@ -16,6 +16,7 @@ struct DatabaseIDE {
     menu_bar: MenuBar,
     left_panel: LeftPanel,
     panel_width: f32,
+    active_tab: PanelTab,
     is_resizing: bool,
 }
 
@@ -27,6 +28,7 @@ impl Default for DatabaseIDE {
             menu_bar: MenuBar::new(theme),
             left_panel: LeftPanel::new(theme),
             panel_width: left_panel::DEFAULT_WIDTH,
+            active_tab: PanelTab::default(),
             is_resizing: false,
         }
     }
@@ -35,6 +37,7 @@ impl Default for DatabaseIDE {
 #[derive(Debug, Clone)]
 enum Message {
     MenuItemClicked(MenuItem),
+    TabClicked(PanelTab),
     ResizeStart,
     ResizeMove(f32),
     ResizeEnd,
@@ -46,6 +49,10 @@ impl DatabaseIDE {
             Message::MenuItemClicked(item) => {
                 // Log menu item clicks (temporary implementation)
                 println!("Menu item clicked: {:?}", item);
+                Task::none()
+            }
+            Message::TabClicked(tab) => {
+                self.active_tab = tab;
                 Task::none()
             }
             Message::ResizeStart => {
@@ -101,7 +108,12 @@ impl DatabaseIDE {
     }
 
     fn left_panel(&self) -> Element<'_, Message> {
-        self.left_panel.view(self.panel_width, Message::ResizeStart)
+        self.left_panel.view(
+            self.panel_width,
+            self.active_tab,
+            Message::TabClicked,
+            Message::ResizeStart,
+        )
     }
 
     fn main_panel(&self) -> Element<'_, Message> {
