@@ -31,7 +31,7 @@ rand = { workspace = true }
 dirs = "5.0"
 
 # Optional database drivers - enable via features
-sqlx = { version = "0.7", optional = true, features = ["runtime-tokio", "tls-rustls"] }
+sqlx = { version = "0.7", optional = true, features = ["runtime-tokio", "tls-rustls", "chrono"] }
 
 [features]
 default = []

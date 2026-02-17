@@ -1,12 +1,16 @@
 use iced::widget::{column, container, row};
 use iced::{Element, Fill, Task, Theme};
+use rusty_app::connection_form::{ConnectionForm, ConnectionFormData, ConnectionFormMessage};
 use rusty_app::left_panel::{self, LeftPanel, PanelTab};
 use rusty_app::main_panel::{MainPanel, TabId};
 use rusty_app::menu_bar::{MenuBar, MenuItem};
 use rusty_app::status_bar::{ConnectionStatus, StatusBar};
 use rusty_app::theme::ThemeColors;
+use rusty_data::adapter::ConnectionConfig;
+use rusty_data::config::ConfigManager;
 use rusty_logging::LoggingConfig;
-use tracing::info;
+use std::collections::HashMap;
+use tracing::{info, warn};
 
 pub fn main() -> iced::Result {
     // Initialize logging (fulfills rusty-data's logging needs via dependency inversion)
@@ -36,10 +40,15 @@ struct DatabaseIDE {
     left_panel: LeftPanel,
     main_panel: MainPanel,
     status_bar: StatusBar,
+    connection_form: ConnectionForm,
     panel_width: f32,
     active_tab: PanelTab,
     is_resizing: bool,
     connection_status: ConnectionStatus,
+    config_manager: ConfigManager,
+    saved_connections: Vec<ConnectionConfig>,
+    showing_connection_form: bool,
+    connection_form_data: ConnectionFormData,
 }
 
 impl Default for DatabaseIDE {
@@ -50,16 +59,35 @@ impl Default for DatabaseIDE {
         // Create an initial tab
         main_panel.add_tab("Query 1".to_string());
 
+        // Initialize ConfigManager
+        let config_manager = ConfigManager::new("~/.rusty-app")
+            .expect("Failed to initialize config manager");
+
+        // Load saved connections
+        let saved_connections = config_manager
+            .load_connections()
+            .unwrap_or_else(|e| {
+                warn!("Failed to load connections: {}", e);
+                Vec::new()
+            });
+
+        info!(count = saved_connections.len(), "Loaded saved connections");
+
         Self {
             theme,
             menu_bar: MenuBar::new(theme),
             left_panel: LeftPanel::new(theme),
             main_panel,
             status_bar: StatusBar::new(theme),
+            connection_form: ConnectionForm::new(theme),
             panel_width: left_panel::DEFAULT_WIDTH,
             active_tab: PanelTab::default(),
             is_resizing: false,
             connection_status: ConnectionStatus::default(),
+            config_manager,
+            saved_connections,
+            showing_connection_form: false,
+            connection_form_data: ConnectionFormData::new(),
         }
     }
 }
@@ -75,6 +103,8 @@ enum Message {
     MainTabClicked(TabId),
     MainTabClosed(TabId),
     NewConnection,
+    ConnectionForm(ConnectionFormMessage),
+    CancelConnectionForm,
 }
 
 impl DatabaseIDE {
@@ -118,10 +148,114 @@ impl DatabaseIDE {
                 Task::none()
             }
             Message::NewConnection => {
-                // TODO: Open connection editor in main panel
-                println!("New connection button clicked");
+                self.showing_connection_form = true;
+                self.connection_form_data = ConnectionFormData::new();
                 Task::none()
             }
+            Message::ConnectionForm(form_message) => {
+                match form_message {
+                    ConnectionFormMessage::Save => {
+                        // Validate form data
+                        if let Err(e) = self.connection_form_data.validate() {
+                            // TODO: Show error message to user
+                            println!("Validation error: {}", e);
+                            return Task::none();
+                        }
+
+                        // Convert form data to ConnectionConfig
+                        let config = self.form_data_to_config(&self.connection_form_data);
+
+                        // Add to saved connections
+                        self.saved_connections.push(config);
+
+                        // Save to disk
+                        if let Err(e) = self.config_manager.save_connections(&self.saved_connections) {
+                            // TODO: Show error message to user
+                            println!("Failed to save connection: {}", e);
+                        } else {
+                            // Close the form on success
+                            self.showing_connection_form = false;
+                        }
+
+                        Task::none()
+                    }
+                    ConnectionFormMessage::Cancel => {
+                        self.showing_connection_form = false;
+                        Task::none()
+                    }
+                    ConnectionFormMessage::NameChanged(name) => {
+                        self.connection_form_data.name = name;
+                        Task::none()
+                    }
+                    ConnectionFormMessage::DbTypeChanged(db_type) => {
+                        self.connection_form_data = self.connection_form_data.clone().with_db_type(db_type);
+                        Task::none()
+                    }
+                    ConnectionFormMessage::HostChanged(host) => {
+                        self.connection_form_data.host = host;
+                        Task::none()
+                    }
+                    ConnectionFormMessage::PortChanged(port) => {
+                        self.connection_form_data.port = port;
+                        Task::none()
+                    }
+                    ConnectionFormMessage::DatabaseChanged(database) => {
+                        self.connection_form_data.database = database;
+                        Task::none()
+                    }
+                    ConnectionFormMessage::UsernameChanged(username) => {
+                        self.connection_form_data.username = username;
+                        Task::none()
+                    }
+                    ConnectionFormMessage::PasswordChanged(password) => {
+                        self.connection_form_data.password = password;
+                        Task::none()
+                    }
+                    ConnectionFormMessage::FilePathChanged(file_path) => {
+                        self.connection_form_data.file_path = file_path;
+                        Task::none()
+                    }
+                }
+            }
+            Message::CancelConnectionForm => {
+                self.showing_connection_form = false;
+                Task::none()
+            }
+        }
+    }
+
+    /// Convert ConnectionFormData to ConnectionConfig
+    fn form_data_to_config(&self, form_data: &ConnectionFormData) -> ConnectionConfig {
+        use rusty_data::adapter::DatabaseType;
+
+        // Generate a unique ID from the connection name
+        let id = form_data.name.to_lowercase().replace(' ', "-");
+
+        // For SQLite, database field holds the file path
+        let (host, port, database) = match form_data.db_type {
+            DatabaseType::SQLite => (None, None, form_data.file_path.clone()),
+            _ => {
+                let port = form_data.port.parse::<u16>().ok();
+                (Some(form_data.host.clone()), port, form_data.database.clone())
+            }
+        };
+
+        let username = if form_data.username.is_empty() {
+            None
+        } else {
+            Some(form_data.username.clone())
+        };
+
+        ConnectionConfig {
+            id,
+            name: form_data.name.clone(),
+            db_type: form_data.db_type,
+            host,
+            port,
+            database,
+            username,
+            use_ssl: false, // TODO: Add SSL checkbox to form
+            parameters: HashMap::new(),
         }
     }
 
@@ -165,6 +299,7 @@ impl DatabaseIDE {
         self.left_panel.view(
             self.panel_width,
             self.active_tab,
+            &self.saved_connections,
             Message::TabClicked,
             Message::ResizeStart,
             Message::NewConnection,
@@ -172,11 +307,18 @@ impl DatabaseIDE {
     }
 
     fn main_panel(&self) -> Element<'_, Message> {
-        self.main_panel.view(
-            Message::NewMainTab,
-            Message::MainTabClicked,
-            Message::MainTabClosed,
-        )
+        if self.showing_connection_form {
+            self.connection_form.view(
+                &self.connection_form_data,
+                Message::ConnectionForm,
+            )
+        } else {
+            self.main_panel.view(
+                Message::NewMainTab,
+                Message::MainTabClicked,
+                Message::MainTabClosed,
+            )
+        }
     }
 
     fn render_status_bar(&self) -> Element<'_, Message> {

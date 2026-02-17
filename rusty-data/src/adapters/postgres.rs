@@ -53,9 +53,27 @@ impl PostgresAdapter {
                         None => QueryValue::Null,
                     }
                 }
-                "INT2" | "INT4" | "INT8" => {
+                "INT2" => {
+                    let val: Option<i16> = row.try_get(i).map_err(|e| {
+                        DataError::Query(format!("Failed to get int2 value: {}", e))
+                    })?;
+                    match val {
+                        Some(v) => QueryValue::Int(v as i64),
+                        None => QueryValue::Null,
+                    }
+                }
+                "INT4" => {
+                    let val: Option<i32> = row.try_get(i).map_err(|e| {
+                        DataError::Query(format!("Failed to get int4 value: {}", e))
+                    })?;
+                    match val {
+                        Some(v) => QueryValue::Int(v as i64),
+                        None => QueryValue::Null,
+                    }
+                }
+                "INT8" => {
                     let val: Option<i64> = row.try_get(i).map_err(|e| {
-                        DataError::Query(format!("Failed to get int value: {}", e))
+                        DataError::Query(format!("Failed to get int8 value: {}", e))
                     })?;
                     match val {
                         Some(v) => QueryValue::Int(v),
@@ -77,6 +95,17 @@ impl PostgresAdapter {
                     })?;
                     match val {
                         Some(v) => QueryValue::Text(v),
+                        None => QueryValue::Null,
+                    }
+                }
+                "TIMESTAMP" | "TIMESTAMPTZ" => {
+                    // Get timestamp as NaiveDateTime and convert to string
+                    use sqlx::types::chrono::NaiveDateTime;
+                    let val: Option<NaiveDateTime> = row.try_get(i).map_err(|e| {
+                        DataError::Query(format!("Failed to get timestamp value: {}", e))
+                    })?;
+                    match val {
+                        Some(v) => QueryValue::Text(v.format("%Y-%m-%d %H:%M:%S").to_string()),
                         None => QueryValue::Null,
                     }
                 }

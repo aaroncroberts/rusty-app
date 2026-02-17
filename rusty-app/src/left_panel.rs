@@ -66,6 +66,7 @@ impl LeftPanel {
         &'a self,
         width: f32,
         active_tab: PanelTab,
+        connections: &'a [rusty_data::adapter::ConnectionConfig],
         on_tab_click: impl Fn(PanelTab) -> Message + 'a,
         _on_resize_start: Message,
         on_new_connection: Message,
@@ -75,7 +76,7 @@ impl LeftPanel {
         // Panel content with tab bar
         let content = column![
             self.tab_bar(active_tab, on_tab_click),
-            self.tab_content(active_tab, on_new_connection),
+            self.tab_content(active_tab, connections, on_new_connection),
         ]
         .spacing(0);
 
@@ -172,6 +173,7 @@ impl LeftPanel {
     fn tab_content<'a, Message: 'a + Clone>(
         &'a self,
         active_tab: PanelTab,
+        connections: &'a [rusty_data::adapter::ConnectionConfig],
         on_new_connection: Message,
     ) -> Element<'a, Message> {
         let theme = self.theme;
@@ -197,7 +199,7 @@ impl LeftPanel {
                     })
                     .on_press(on_new_connection);
 
-                column![
+                let mut content_col = column![
                     row![
                         text("Servers").size(12).color(theme.text),
                         horizontal_space(),
@@ -205,12 +207,26 @@ impl LeftPanel {
                     ]
                     .spacing(5),
                     text("─────────").size(10).color(theme.border),
-                    text("(No connections)")
-                        .size(11)
-                        .color(theme.text_secondary),
                 ]
-                .spacing(10)
-                .padding(15)
+                .spacing(10);
+
+                if connections.is_empty() {
+                    content_col = content_col.push(
+                        text("(No connections)")
+                            .size(11)
+                            .color(theme.text_secondary),
+                    );
+                } else {
+                    for conn in connections {
+                        content_col = content_col.push(
+                            text(&conn.name)
+                                .size(11)
+                                .color(theme.text),
+                        );
+                    }
+                }
+
+                content_col.padding(15)
             }
 
             PanelTab::Tables => column![
