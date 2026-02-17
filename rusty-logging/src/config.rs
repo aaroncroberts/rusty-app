@@ -10,8 +10,11 @@ use tracing_appender::rolling::{RollingFileAppender, Rotation};
 /// including output format, log levels, and other settings.
 #[derive(Debug, Clone)]
 pub struct LoggingConfig {
-    /// Environment filter for log levels and targets
+    /// Environment filter for log levels and targets (global default)
     pub(crate) filter: String,
+
+    /// Console-specific filter (overrides global filter if set)
+    pub(crate) console_filter: Option<String>,
 
     /// Console output format
     pub(crate) console_format: ConsoleFormat,
@@ -21,6 +24,9 @@ pub struct LoggingConfig {
 
     /// Whether console output is enabled
     pub(crate) console_enabled: bool,
+
+    /// File-specific filter (overrides global filter if set)
+    pub(crate) file_filter: Option<String>,
 
     /// Whether file output is enabled
     pub(crate) file_enabled: bool,
@@ -110,11 +116,21 @@ impl LoggingConfig {
     pub fn apply(self) -> Result<()> {
         use std::fs;
 
-        let env_filter = EnvFilter::try_from_default_env()
-            .or_else(|_| EnvFilter::try_new(&self.filter))
-            .map_err(|e| LoggingError::FilterError(format!("Invalid filter '{}': {}", self.filter, e)))?;
+        // Determine effective filters for each output
+        let console_filter_str = self.console_filter.as_ref().unwrap_or(&self.filter);
+        let file_filter_str = self.file_filter.as_ref().unwrap_or(&self.filter);
 
-        let registry = tracing_subscriber::registry().with(env_filter);
+        // Build console filter
+        let console_filter = EnvFilter::try_from_default_env()
+            .or_else(|_| EnvFilter::try_new(console_filter_str))
+            .map_err(|e| LoggingError::FilterError(format!("Invalid console filter '{}': {}", console_filter_str, e)))?;
+
+        // Build file filter
+        let file_filter = EnvFilter::try_from_default_env()
+            .or_else(|_| EnvFilter::try_new(file_filter_str))
+            .map_err(|e| LoggingError::FilterError(format!("Invalid file filter '{}': {}", file_filter_str, e)))?;
+
+        let registry = tracing_subscriber::registry();
 
         // Build layers based on configuration
         match (self.console_enabled, self.file_enabled) {
@@ -147,7 +163,8 @@ impl LoggingConfig {
                             .with_thread_ids(true)
                             .with_file(true)
                             .with_line_number(true)
-                            .with_writer(std::io::stdout);
+                            .with_writer(std::io::stdout)
+                            .with_filter(console_filter);
 
                         let file_layer = fmt::layer()
                             .with_ansi(false)
@@ -155,7 +172,8 @@ impl LoggingConfig {
                             .with_thread_ids(true)
                             .with_file(true)
                             .with_line_number(true)
-                            .with_writer(file_appender);
+                            .with_writer(file_appender)
+                            .with_filter(file_filter);
 
                         registry
                             .with(console_layer)
@@ -171,11 +189,13 @@ impl LoggingConfig {
                             .with_thread_ids(true)
                             .with_file(true)
                             .with_line_number(true)
-                            .with_writer(std::io::stdout);
+                            .with_writer(std::io::stdout)
+                            .with_filter(console_filter);
 
                         let file_layer = fmt::layer()
                             .json()
-                            .with_writer(file_appender);
+                            .with_writer(file_appender)
+                            .with_filter(file_filter);
 
                         registry
                             .with(console_layer)
@@ -191,7 +211,8 @@ impl LoggingConfig {
                             .with_thread_ids(true)
                             .with_file(true)
                             .with_line_number(true)
-                            .with_writer(std::io::stderr);
+                            .with_writer(std::io::stderr)
+                            .with_filter(console_filter);
 
                         let file_layer = fmt::layer()
                             .with_ansi(false)
@@ -199,7 +220,8 @@ impl LoggingConfig {
                             .with_thread_ids(true)
                             .with_file(true)
                             .with_line_number(true)
-                            .with_writer(file_appender);
+                            .with_writer(file_appender)
+                            .with_filter(file_filter);
 
                         registry
                             .with(console_layer)
@@ -215,11 +237,13 @@ impl LoggingConfig {
                             .with_thread_ids(true)
                             .with_file(true)
                             .with_line_number(true)
-                            .with_writer(std::io::stderr);
+                            .with_writer(std::io::stderr)
+                            .with_filter(console_filter);
 
                         let file_layer = fmt::layer()
                             .json()
-                            .with_writer(file_appender);
+                            .with_writer(file_appender)
+                            .with_filter(file_filter);
 
                         registry
                             .with(console_layer)
@@ -232,7 +256,8 @@ impl LoggingConfig {
                         let console_layer = fmt::layer()
                             .compact()
                             .with_target(true)
-                            .with_writer(std::io::stdout);
+                            .with_writer(std::io::stdout)
+                            .with_filter(console_filter);
 
                         let file_layer = fmt::layer()
                             .with_ansi(false)
@@ -240,7 +265,8 @@ impl LoggingConfig {
                             .with_thread_ids(true)
                             .with_file(true)
                             .with_line_number(true)
-                            .with_writer(file_appender);
+                            .with_writer(file_appender)
+                            .with_filter(file_filter);
 
                         registry
                             .with(console_layer)
@@ -253,11 +279,13 @@ impl LoggingConfig {
                         let console_layer = fmt::layer()
                             .compact()
                             .with_target(true)
-                            .with_writer(std::io::stdout);
+                            .with_writer(std::io::stdout)
+                            .with_filter(console_filter);
 
                         let file_layer = fmt::layer()
                             .json()
-                            .with_writer(file_appender);
+                            .with_writer(file_appender)
+                            .with_filter(file_filter);
 
                         registry
                             .with(console_layer)
@@ -270,7 +298,8 @@ impl LoggingConfig {
                         let console_layer = fmt::layer()
                             .compact()
                             .with_target(true)
-                            .with_writer(std::io::stderr);
+                            .with_writer(std::io::stderr)
+                            .with_filter(console_filter);
 
                         let file_layer = fmt::layer()
                             .with_ansi(false)
@@ -278,7 +307,8 @@ impl LoggingConfig {
                             .with_thread_ids(true)
                             .with_file(true)
                             .with_line_number(true)
-                            .with_writer(file_appender);
+                            .with_writer(file_appender)
+                            .with_filter(file_filter);
 
                         registry
                             .with(console_layer)
@@ -291,11 +321,13 @@ impl LoggingConfig {
                         let console_layer = fmt::layer()
                             .compact()
                             .with_target(true)
-                            .with_writer(std::io::stderr);
+                            .with_writer(std::io::stderr)
+                            .with_filter(console_filter);
 
                         let file_layer = fmt::layer()
                             .json()
-                            .with_writer(file_appender);
+                            .with_writer(file_appender)
+                            .with_filter(file_filter);
 
                         registry
                             .with(console_layer)
@@ -315,7 +347,8 @@ impl LoggingConfig {
                             .with_thread_ids(true)
                             .with_file(true)
                             .with_line_number(true)
-                            .with_writer(std::io::stdout);
+                            .with_writer(std::io::stdout)
+                            .with_filter(console_filter);
 
                         registry
                             .with(layer)
@@ -329,7 +362,8 @@ impl LoggingConfig {
                             .with_thread_ids(true)
                             .with_file(true)
                             .with_line_number(true)
-                            .with_writer(std::io::stderr);
+                            .with_writer(std::io::stderr)
+                            .with_filter(console_filter);
 
                         registry
                             .with(layer)
@@ -340,7 +374,8 @@ impl LoggingConfig {
                         let layer = fmt::layer()
                             .compact()
                             .with_target(true)
-                            .with_writer(std::io::stdout);
+                            .with_writer(std::io::stdout)
+                            .with_filter(console_filter);
 
                         registry
                             .with(layer)
@@ -351,7 +386,8 @@ impl LoggingConfig {
                         let layer = fmt::layer()
                             .compact()
                             .with_target(true)
-                            .with_writer(std::io::stderr);
+                            .with_writer(std::io::stderr)
+                            .with_filter(console_filter);
 
                         registry
                             .with(layer)
@@ -388,7 +424,8 @@ impl LoggingConfig {
                             .with_thread_ids(true)
                             .with_file(true)
                             .with_line_number(true)
-                            .with_writer(file_appender);
+                            .with_writer(file_appender)
+                            .with_filter(file_filter);
 
                         registry
                             .with(file_layer)
@@ -398,7 +435,8 @@ impl LoggingConfig {
                     FileFormat::Json => {
                         let file_layer = fmt::layer()
                             .json()
-                            .with_writer(file_appender);
+                            .with_writer(file_appender)
+                            .with_filter(file_filter);
 
                         registry
                             .with(file_layer)
@@ -425,9 +463,11 @@ impl LoggingConfig {
 #[derive(Debug, Clone)]
 pub struct LoggingConfigBuilder {
     filter: String,
+    console_filter: Option<String>,
     console_format: ConsoleFormat,
     console_writer: ConsoleWriter,
     console_enabled: bool,
+    file_filter: Option<String>,
     file_enabled: bool,
     file_format: FileFormat,
     file_directory: PathBuf,
@@ -439,9 +479,11 @@ impl Default for LoggingConfigBuilder {
     fn default() -> Self {
         Self {
             filter: "info".to_string(),
+            console_filter: None,
             console_format: ConsoleFormat::Pretty,
             console_writer: ConsoleWriter::Stderr,
             console_enabled: true,
+            file_filter: None,
             file_enabled: false,
             file_format: FileFormat::Text,
             file_directory: PathBuf::from("logs"),
@@ -452,7 +494,7 @@ impl Default for LoggingConfigBuilder {
 }
 
 impl LoggingConfigBuilder {
-    /// Set the log level filter
+    /// Set the global log level filter (applies to all outputs unless overridden)
     ///
     /// # Arguments
     ///
@@ -470,6 +512,57 @@ impl LoggingConfigBuilder {
     /// ```
     pub fn with_filter(mut self, filter: impl Into<String>) -> Self {
         self.filter = filter.into();
+        self
+    }
+
+    /// Set console-specific log level filter
+    ///
+    /// This overrides the global filter for console output only.
+    ///
+    /// # Arguments
+    ///
+    /// * `filter` - Console-specific filter (e.g., "info", "warn")
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rusty_logging::LoggingConfig;
+    ///
+    /// // Show INFO on console, DEBUG in file
+    /// let config = LoggingConfig::builder()
+    ///     .with_filter("debug")
+    ///     .with_console_filter("info")
+    ///     .build()
+    ///     .unwrap();
+    /// ```
+    pub fn with_console_filter(mut self, filter: impl Into<String>) -> Self {
+        self.console_filter = Some(filter.into());
+        self
+    }
+
+    /// Set file-specific log level filter
+    ///
+    /// This overrides the global filter for file output only.
+    ///
+    /// # Arguments
+    ///
+    /// * `filter` - File-specific filter (e.g., "debug", "trace")
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rusty_logging::LoggingConfig;
+    ///
+    /// // Show INFO on console, DEBUG in file
+    /// let config = LoggingConfig::builder()
+    ///     .with_console_filter("info")
+    ///     .with_file_filter("debug")
+    ///     .with_file_text()
+    ///     .build()
+    ///     .unwrap();
+    /// ```
+    pub fn with_file_filter(mut self, filter: impl Into<String>) -> Self {
+        self.file_filter = Some(filter.into());
         self
     }
 
@@ -690,9 +783,11 @@ impl LoggingConfigBuilder {
 
         Ok(LoggingConfig {
             filter: self.filter,
+            console_filter: self.console_filter,
             console_format: self.console_format,
             console_writer: self.console_writer,
             console_enabled: self.console_enabled,
+            file_filter: self.file_filter,
             file_enabled: self.file_enabled,
             file_format: self.file_format,
             file_directory: self.file_directory,
@@ -851,5 +946,53 @@ mod tests {
         assert!(!config.console_enabled);
         assert!(config.file_enabled);
         assert_eq!(config.file_format, FileFormat::Json);
+    }
+
+    #[test]
+    fn test_independent_console_filter() {
+        let config = LoggingConfig::builder()
+            .with_filter("debug")
+            .with_console_filter("info")
+            .build()
+            .unwrap();
+        assert_eq!(config.filter, "debug");
+        assert_eq!(config.console_filter, Some("info".to_string()));
+    }
+
+    #[test]
+    fn test_independent_file_filter() {
+        let config = LoggingConfig::builder()
+            .with_filter("info")
+            .with_file_filter("debug")
+            .build()
+            .unwrap();
+        assert_eq!(config.filter, "info");
+        assert_eq!(config.file_filter, Some("debug".to_string()));
+    }
+
+    #[test]
+    fn test_independent_filters_dual_output() {
+        let config = LoggingConfig::builder()
+            .with_console_filter("warn")
+            .with_file_filter("debug")
+            .with_console_pretty()
+            .with_file_json()
+            .build()
+            .unwrap();
+        assert!(config.console_enabled);
+        assert!(config.file_enabled);
+        assert_eq!(config.console_filter, Some("warn".to_string()));
+        assert_eq!(config.file_filter, Some("debug".to_string()));
+    }
+
+    #[test]
+    fn test_filter_defaults_to_global() {
+        let config = LoggingConfig::builder()
+            .with_filter("info")
+            .build()
+            .unwrap();
+        assert_eq!(config.filter, "info");
+        assert_eq!(config.console_filter, None); // Will use global filter
+        assert_eq!(config.file_filter, None);    // Will use global filter
     }
 }

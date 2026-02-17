@@ -14,6 +14,7 @@ pub enum MenuItem {
     Edit,
     View,
     Tools,
+    AddConnection,
 }
 
 impl MenuItem {
@@ -24,6 +25,7 @@ impl MenuItem {
             MenuItem::Edit => "Edit",
             MenuItem::View => "View",
             MenuItem::Tools => "Tools",
+            MenuItem::AddConnection => "Add Connection",
         }
     }
 
