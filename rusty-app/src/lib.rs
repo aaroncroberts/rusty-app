@@ -1,3 +1,5 @@
 //! rusty-app library - UI components and theme for the Database IDE
 
+pub mod left_panel;
+pub mod menu_bar;
 pub mod theme;
