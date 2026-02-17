@@ -1,0 +1,38 @@
+[package]
+name = "rusty-data"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+# Async runtime
+tokio = { workspace = true }
+async-trait = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Encryption for credentials
+aes-gcm = { workspace = true }
+argon2 = { workspace = true }
+rand = { workspace = true }
+
+# For working with directories
+dirs = "5.0"
+
+# Optional database drivers - enable via features
+sqlx = { version = "0.7", optional = true, features = ["runtime-tokio", "tls-rustls"] }
+
+[features]
+default = []
+postgres = ["sqlx", "sqlx/postgres"]
+mysql = ["sqlx", "sqlx/mysql"]
+sqlite = ["sqlx", "sqlx/sqlite"]
+all-databases = ["postgres", "mysql", "sqlite"]

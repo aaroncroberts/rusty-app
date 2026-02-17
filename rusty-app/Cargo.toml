@@ -1,0 +1,23 @@
+[package]
+name = "rusty-app"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+# Internal dependencies
+rusty-data = { path = "../rusty-data" }
+
+# UI Framework - Iced for modern, GPU-accelerated desktop UI
+iced = { version = "0.13", features = ["tokio", "debug"] }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
