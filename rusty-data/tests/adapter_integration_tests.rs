@@ -201,7 +201,7 @@ mod mysql_tests {
 #[cfg(feature = "sqlite")]
 mod sqlite_tests {
     use super::*;
-    use rusty_data::adapters::sqlite::SQLiteAdapter;
+    use rusty_data::adapters::sqlite::SqliteAdapter;
     use std::fs;
 
     fn get_sqlite_config() -> ConnectionConfig {
@@ -221,7 +221,7 @@ mod sqlite_tests {
     async fn setup_sqlite_test_db() -> Result<()> {
         // Create test database with sample data
         let config = get_sqlite_config();
-        let mut adapter = SQLiteAdapter::new();
+        let mut adapter = SqliteAdapter::new();
 
         adapter.connect(&config, None).await?;
 
@@ -268,7 +268,7 @@ mod sqlite_tests {
         cleanup_sqlite_test_db();
         setup_sqlite_test_db().await?;
 
-        let mut adapter = SQLiteAdapter::new();
+        let mut adapter = SqliteAdapter::new();
         let config = get_sqlite_config();
 
         // Connect
@@ -288,7 +288,7 @@ mod sqlite_tests {
         cleanup_sqlite_test_db();
         setup_sqlite_test_db().await?;
 
-        let mut adapter = SQLiteAdapter::new();
+        let mut adapter = SqliteAdapter::new();
         let config = get_sqlite_config();
 
         adapter.connect(&config, None).await?;
@@ -309,7 +309,7 @@ mod sqlite_tests {
         cleanup_sqlite_test_db();
         setup_sqlite_test_db().await?;
 
-        let mut adapter = SQLiteAdapter::new();
+        let mut adapter = SqliteAdapter::new();
         let config = get_sqlite_config();
 
         adapter.connect(&config, None).await?;

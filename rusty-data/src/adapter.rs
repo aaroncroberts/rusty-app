@@ -33,10 +33,9 @@ pub enum DatabaseType {
     Postgres,
     MySQL,
     SQLite,
-    // Future support
-    // MongoDB,
-    // Redis,
-    // SQLServer,
+    MongoDB,
+    SQLServer,
+    Oracle,
 }
 
 impl DatabaseType {
@@ -46,6 +45,9 @@ impl DatabaseType {
             DatabaseType::Postgres => Some(5432),
             DatabaseType::MySQL => Some(3306),
             DatabaseType::SQLite => None,
+            DatabaseType::MongoDB => Some(27017),
+            DatabaseType::SQLServer => Some(1433),
+            DatabaseType::Oracle => Some(1521),
         }
     }
 }
@@ -358,6 +360,9 @@ mod tests {
         assert_eq!(DatabaseType::Postgres.default_port(), Some(5432));
         assert_eq!(DatabaseType::MySQL.default_port(), Some(3306));
         assert_eq!(DatabaseType::SQLite.default_port(), None);
+        assert_eq!(DatabaseType::MongoDB.default_port(), Some(27017));
+        assert_eq!(DatabaseType::SQLServer.default_port(), Some(1433));
+        assert_eq!(DatabaseType::Oracle.default_port(), Some(1521));
     }
 
     #[test]

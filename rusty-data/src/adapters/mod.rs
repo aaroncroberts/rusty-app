@@ -9,3 +9,12 @@ pub mod mysql;
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
+
+#[cfg(feature = "mssql")]
+pub mod mssql;
+
+#[cfg(feature = "mongodb")]
+pub mod mongodb;
+
+#[cfg(feature = "oracle")]
+pub mod oracle;

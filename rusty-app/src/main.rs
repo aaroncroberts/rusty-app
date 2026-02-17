@@ -6,7 +6,7 @@ use rusty_app::main_panel::{MainPanel, TabId};
 use rusty_app::menu_bar::{MenuBar, MenuItem};
 use rusty_app::status_bar::{ConnectionStatus, StatusBar};
 use rusty_app::theme::ThemeColors;
-use rusty_data::adapter::ConnectionConfig;
+use rusty_data::adapter::{ConnectionConfig, DatabaseAdapter, DatabaseType};
 use rusty_data::config::ConfigManager;
 use rusty_logging::LoggingConfig;
 use std::collections::HashMap;
@@ -110,6 +110,33 @@ enum Message {
     ConnectionForm(ConnectionFormMessage),
     CancelConnectionForm,
     ConnectionTestResult(Result<(), String>),
+}
+
+/// Test database connection with appropriate adapter
+async fn test_database_connection(config: ConnectionConfig, password: Option<String>) -> rusty_data::Result<bool> {
+    use rusty_data::adapters;
+
+    let password_ref = password.as_deref();
+
+    match config.db_type {
+        DatabaseType::Postgres => {
+            let adapter = adapters::postgres::PostgresAdapter::new();
+            adapter.test_connection(&config, password_ref).await
+        }
+        DatabaseType::MySQL => {
+            let adapter = adapters::mysql::MySqlAdapter::new();
+            adapter.test_connection(&config, password_ref).await
+        }
+        DatabaseType::SQLite => {
+            let adapter = adapters::sqlite::SqliteAdapter::new();
+            adapter.test_connection(&config, password_ref).await
+        }
+        DatabaseType::MongoDB | DatabaseType::SQLServer | DatabaseType::Oracle => {
+            Err(rusty_data::error::DataError::Config(
+                format!("Database type {:?} is not yet supported", config.db_type)
+            ))
+        }
+    }
 }
 
 impl DatabaseIDE {
@@ -287,14 +314,34 @@ impl DatabaseIDE {
 
     /// Test connection asynchronously with 10 second timeout
     fn test_connection_async(&self) -> Task<Message> {
-        let _config = self.form_data_to_config(&self.connection_form_data);
+        let config = self.form_data_to_config(&self.connection_form_data);
+        let password = if self.connection_form_data.password.is_empty() {
+            None
+        } else {
+            Some(self.connection_form_data.password.clone())
+        };
 
         Task::perform(
             async move {
-                // TODO: Implement real connection testing once adapters are available
-                // For now, simulate a successful connection test
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                Ok(())
+                // Test connection with 10 second timeout
+                let timeout_duration = std::time::Duration::from_secs(10);
+
+                let result = tokio::time::timeout(
+                    timeout_duration,
+                    test_database_connection(config, password)
+                ).await;
+
+                match result {
+                    Ok(Ok(success)) => {
+                        if success {
+                            Ok(())
+                        } else {
+                            Err("Connection failed: Unable to connect to database".to_string())
+                        }
+                    }
+                    Ok(Err(e)) => Err(format!("Connection error: {}", e)),
+                    Err(_) => Err("Connection timeout: Failed to connect within 10 seconds".to_string()),
+                }
             },
             Message::ConnectionTestResult
         )
