@@ -30,6 +30,9 @@ impl std::fmt::Display for DisplayableDatabaseType {
             DatabaseType::Postgres => write!(f, "PostgreSQL"),
             DatabaseType::MySQL => write!(f, "MySQL"),
             DatabaseType::SQLite => write!(f, "SQLite"),
+            DatabaseType::MongoDB => write!(f, "MongoDB"),
+            DatabaseType::SQLServer => write!(f, "SQL Server"),
+            DatabaseType::Oracle => write!(f, "Oracle"),
         }
     }
 }
@@ -89,7 +92,8 @@ impl ConnectionFormData {
                     return Err("File path is required for SQLite".to_string());
                 }
             }
-            DatabaseType::Postgres | DatabaseType::MySQL => {
+            DatabaseType::Postgres | DatabaseType::MySQL | DatabaseType::MongoDB
+            | DatabaseType::SQLServer | DatabaseType::Oracle => {
                 if self.host.trim().is_empty() {
                     return Err("Host is required".to_string());
                 }
@@ -120,6 +124,7 @@ pub enum ConnectionFormMessage {
     UsernameChanged(String),
     PasswordChanged(String),
     FilePathChanged(String),
+    TestConnection,
     Save,
     Cancel,
 }
@@ -196,7 +201,8 @@ impl ConnectionForm {
                         .style(|theme, status| self.input_style(theme, status)),
                 ));
             }
-            DatabaseType::Postgres | DatabaseType::MySQL => {
+            DatabaseType::Postgres | DatabaseType::MySQL | DatabaseType::MongoDB
+            | DatabaseType::SQLServer | DatabaseType::Oracle => {
                 form_fields = form_fields
                     .push(self.form_field(
                         "Host",
@@ -242,6 +248,23 @@ impl ConnectionForm {
             button(text("Cancel").size(14))
                 .padding([8, 16])
                 .on_press(on_message(ConnectionFormMessage::Cancel))
+                .style(move |_theme, status| button::Style {
+                    background: Some(theme.background_secondary.into()),
+                    text_color: theme.text,
+                    border: Border {
+                        color: if matches!(status, button::Status::Hovered) {
+                            theme.accent
+                        } else {
+                            theme.border
+                        },
+                        width: 1.0,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            button(text("Test Connection").size(14))
+                .padding([8, 16])
+                .on_press(on_message(ConnectionFormMessage::TestConnection))
                 .style(move |_theme, status| button::Style {
                     background: Some(theme.background_secondary.into()),
                     text_color: theme.text,

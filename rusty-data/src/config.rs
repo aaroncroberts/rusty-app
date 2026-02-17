@@ -128,7 +128,7 @@ impl ConfigManager {
             DatabaseType::SQLite => {
                 // SQLite uses database field as file path, host/port are optional
             }
-            DatabaseType::Postgres | DatabaseType::MySQL => {
+            DatabaseType::Postgres | DatabaseType::MySQL | DatabaseType::MongoDB | DatabaseType::SQLServer | DatabaseType::Oracle => {
                 if config.host.is_none() || config.host.as_ref().unwrap().trim().is_empty() {
                     return Err(DataError::Config(format!(
                         "{:?} requires a host address",
@@ -149,7 +149,7 @@ impl ConfigManager {
 
         // For server databases, port should be specified
         match config.db_type {
-            DatabaseType::Postgres | DatabaseType::MySQL => {
+            DatabaseType::Postgres | DatabaseType::MySQL | DatabaseType::MongoDB | DatabaseType::SQLServer | DatabaseType::Oracle => {
                 if config.port.is_none() {
                     return Err(DataError::Config(format!(
                         "{:?} requires a port number",

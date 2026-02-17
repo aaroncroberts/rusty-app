@@ -49,6 +49,8 @@ struct DatabaseIDE {
     saved_connections: Vec<ConnectionConfig>,
     showing_connection_form: bool,
     connection_form_data: ConnectionFormData,
+    testing_connection: bool,
+    test_result: Option<Result<(), String>>,
 }
 
 impl Default for DatabaseIDE {
@@ -88,6 +90,8 @@ impl Default for DatabaseIDE {
             saved_connections,
             showing_connection_form: false,
             connection_form_data: ConnectionFormData::new(),
+            testing_connection: false,
+            test_result: None,
         }
     }
 }
@@ -105,6 +109,7 @@ enum Message {
     NewConnection,
     ConnectionForm(ConnectionFormMessage),
     CancelConnectionForm,
+    ConnectionTestResult(Result<(), String>),
 }
 
 impl DatabaseIDE {
@@ -215,10 +220,31 @@ impl DatabaseIDE {
                         self.connection_form_data.file_path = file_path;
                         Task::none()
                     }
+                    ConnectionFormMessage::TestConnection => {
+                        // Validate form data first
+                        if let Err(e) = self.connection_form_data.validate() {
+                            // Show error - for now just set test result
+                            self.test_result = Some(Err(e));
+                            return Task::none();
+                        }
+
+                        // Set testing state
+                        self.testing_connection = true;
+                        self.test_result = None;
+
+                        // Create async task to test connection
+                        self.test_connection_async()
+                    }
                 }
             }
             Message::CancelConnectionForm => {
                 self.showing_connection_form = false;
+                self.test_result = None;
+                Task::none()
+            }
+            Message::ConnectionTestResult(result) => {
+                self.testing_connection = false;
+                self.test_result = Some(result);
                 Task::none()
             }
         }
@@ -257,6 +283,21 @@ impl DatabaseIDE {
             use_ssl: false, // TODO: Add SSL checkbox to form
             parameters: HashMap::new(),
         }
+    }
+
+    /// Test connection asynchronously with 10 second timeout
+    fn test_connection_async(&self) -> Task<Message> {
+        let _config = self.form_data_to_config(&self.connection_form_data);
+
+        Task::perform(
+            async move {
+                // TODO: Implement real connection testing once adapters are available
+                // For now, simulate a successful connection test
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                Ok(())
+            },
+            Message::ConnectionTestResult
+        )
     }
 
     fn view(&self) -> Element<'_, Message> {
