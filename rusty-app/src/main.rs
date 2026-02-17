@@ -57,6 +57,7 @@ enum Message {
     NewMainTab,
     MainTabClicked(TabId),
     MainTabClosed(TabId),
+    NewConnection,
 }
 
 impl DatabaseIDE {
@@ -97,6 +98,11 @@ impl DatabaseIDE {
             }
             Message::MainTabClosed(id) => {
                 self.main_panel.close_tab(id);
+                Task::none()
+            }
+            Message::NewConnection => {
+                // TODO: Open connection editor in main panel
+                println!("New connection button clicked");
                 Task::none()
             }
         }
@@ -144,6 +150,7 @@ impl DatabaseIDE {
             self.active_tab,
             Message::TabClicked,
             Message::ResizeStart,
+            Message::NewConnection,
         )
     }
 

@@ -68,13 +68,14 @@ impl LeftPanel {
         active_tab: PanelTab,
         on_tab_click: impl Fn(PanelTab) -> Message + 'a,
         _on_resize_start: Message,
+        on_new_connection: Message,
     ) -> Element<'a, Message> {
         let theme = self.theme;
 
         // Panel content with tab bar
         let content = column![
             self.tab_bar(active_tab, on_tab_click),
-            self.tab_content(active_tab),
+            self.tab_content(active_tab, on_new_connection),
         ]
         .spacing(0);
 
@@ -171,19 +172,46 @@ impl LeftPanel {
     fn tab_content<'a, Message: 'a + Clone>(
         &'a self,
         active_tab: PanelTab,
+        on_new_connection: Message,
     ) -> Element<'a, Message> {
         let theme = self.theme;
 
         let content = match active_tab {
-            PanelTab::Servers => column![
-                text("Servers").size(12).color(theme.text),
-                text("─────────").size(10).color(theme.border),
-                text("(No connections)")
-                    .size(11)
-                    .color(theme.text_secondary),
-            ]
-            .spacing(10)
-            .padding(15),
+            PanelTab::Servers => {
+                // New connection button
+                let new_conn_btn = button(text("+").size(16))
+                    .padding([4, 8])
+                    .style(move |_theme, status| button::Style {
+                        background: Some(theme.accent.into()),
+                        text_color: theme.text,
+                        border: Border {
+                            color: if matches!(status, button::Status::Hovered) {
+                                theme.text
+                            } else {
+                                theme.accent
+                            },
+                            width: 1.0,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    })
+                    .on_press(on_new_connection);
+
+                column![
+                    row![
+                        text("Servers").size(12).color(theme.text),
+                        horizontal_space(),
+                        new_conn_btn,
+                    ]
+                    .spacing(5),
+                    text("─────────").size(10).color(theme.border),
+                    text("(No connections)")
+                        .size(11)
+                        .color(theme.text_secondary),
+                ]
+                .spacing(10)
+                .padding(15)
+            }
 
             PanelTab::Tables => column![
                 text("Tables").size(12).color(theme.text),
