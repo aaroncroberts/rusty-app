@@ -1,5 +1,6 @@
 //! rusty-app library - UI components and theme for the Database IDE
 
+pub mod connection_form;
 pub mod left_panel;
 pub mod main_panel;
 pub mod menu_bar;
