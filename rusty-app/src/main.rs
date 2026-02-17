@@ -1,6 +1,7 @@
-use iced::widget::{column, container, row, text};
-use iced::{Center, Element, Fill, Task, Theme};
+use iced::widget::{column, container, row};
+use iced::{Element, Fill, Task, Theme};
 use rusty_app::left_panel::{self, LeftPanel, PanelTab};
+use rusty_app::main_panel::{MainPanel, TabId};
 use rusty_app::menu_bar::{MenuBar, MenuItem};
 use rusty_app::status_bar::{ConnectionStatus, StatusBar};
 use rusty_app::theme::ThemeColors;
@@ -16,6 +17,7 @@ struct DatabaseIDE {
     theme: ThemeColors,
     menu_bar: MenuBar,
     left_panel: LeftPanel,
+    main_panel: MainPanel,
     status_bar: StatusBar,
     panel_width: f32,
     active_tab: PanelTab,
@@ -26,10 +28,16 @@ struct DatabaseIDE {
 impl Default for DatabaseIDE {
     fn default() -> Self {
         let theme = ThemeColors::dark();
+        let mut main_panel = MainPanel::new(theme);
+
+        // Create an initial tab
+        main_panel.add_tab("Query 1".to_string());
+
         Self {
             theme,
             menu_bar: MenuBar::new(theme),
             left_panel: LeftPanel::new(theme),
+            main_panel,
             status_bar: StatusBar::new(theme),
             panel_width: left_panel::DEFAULT_WIDTH,
             active_tab: PanelTab::default(),
@@ -46,6 +54,9 @@ enum Message {
     ResizeStart,
     ResizeMove(f32),
     ResizeEnd,
+    NewMainTab,
+    MainTabClicked(TabId),
+    MainTabClosed(TabId),
 }
 
 impl DatabaseIDE {
@@ -72,6 +83,20 @@ impl DatabaseIDE {
             }
             Message::ResizeEnd => {
                 self.is_resizing = false;
+                Task::none()
+            }
+            Message::NewMainTab => {
+                let tab_count = self.main_panel.tabs().len() + 1;
+                self.main_panel
+                    .add_tab(format!("Query {}", tab_count));
+                Task::none()
+            }
+            Message::MainTabClicked(id) => {
+                self.main_panel.set_active_tab(id);
+                Task::none()
+            }
+            Message::MainTabClosed(id) => {
+                self.main_panel.close_tab(id);
                 Task::none()
             }
         }
@@ -123,25 +148,11 @@ impl DatabaseIDE {
     }
 
     fn main_panel(&self) -> Element<'_, Message> {
-        let panel = container(
-            column![
-                text("Query Editor").size(16).color(self.theme.text),
-                text("Ready to execute queries...").size(12).color(self.theme.text_secondary),
-            ]
-            .spacing(20)
-            .padding(20)
+        self.main_panel.view(
+            Message::NewMainTab,
+            Message::MainTabClicked,
+            Message::MainTabClosed,
         )
-        .width(Fill)
-        .height(Fill)
-        .center(Fill)
-        .align_x(Center)
-        .align_y(Center)
-        .style(move |_theme| container::Style {
-            background: Some(self.theme.background.into()),
-            ..Default::default()
-        });
-
-        panel.into()
     }
 
     fn render_status_bar(&self) -> Element<'_, Message> {
