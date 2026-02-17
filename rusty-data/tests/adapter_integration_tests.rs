@@ -109,7 +109,7 @@ mod postgres_tests {
 #[cfg(feature = "mysql")]
 mod mysql_tests {
     use super::*;
-    use rusty_data::adapters::mysql::MySQLAdapter;
+    use rusty_data::adapters::mysql::MySqlAdapter;
 
     fn get_mysql_config() -> ConnectionConfig {
         ConnectionConfig {
@@ -127,7 +127,7 @@ mod mysql_tests {
 
     #[tokio::test]
     async fn test_mysql_connect_disconnect() -> Result<()> {
-        let mut adapter = MySQLAdapter::new();
+        let mut adapter = MySqlAdapter::new();
         let config = get_mysql_config();
 
         // Connect
@@ -143,7 +143,7 @@ mod mysql_tests {
 
     #[tokio::test]
     async fn test_mysql_execute_query() -> Result<()> {
-        let mut adapter = MySQLAdapter::new();
+        let mut adapter = MySqlAdapter::new();
         let config = get_mysql_config();
 
         adapter.connect(&config, Some("rusty_pass")).await?;
@@ -160,7 +160,7 @@ mod mysql_tests {
 
     #[tokio::test]
     async fn test_mysql_list_tables() -> Result<()> {
-        let mut adapter = MySQLAdapter::new();
+        let mut adapter = MySqlAdapter::new();
         let config = get_mysql_config();
 
         adapter.connect(&config, Some("rusty_pass")).await?;
@@ -177,7 +177,7 @@ mod mysql_tests {
 
     #[tokio::test]
     async fn test_mysql_describe_table() -> Result<()> {
-        let mut adapter = MySQLAdapter::new();
+        let mut adapter = MySqlAdapter::new();
         let config = get_mysql_config();
 
         adapter.connect(&config, Some("rusty_pass")).await?;

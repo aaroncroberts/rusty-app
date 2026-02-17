@@ -83,6 +83,39 @@ impl MySqlAdapter {
                         None => QueryValue::Null,
                     }
                 }
+                "TIMESTAMP" => {
+                    // MySQL TIMESTAMP is stored as UTC DateTime
+                    use sqlx::types::chrono::{DateTime, Utc};
+                    let val: Option<DateTime<Utc>> = row.try_get(i).map_err(|e| {
+                        DataError::Query(format!("Failed to get timestamp value: {}", e))
+                    })?;
+                    match val {
+                        Some(v) => QueryValue::Text(v.format("%Y-%m-%d %H:%M:%S").to_string()),
+                        None => QueryValue::Null,
+                    }
+                }
+                "DATETIME" => {
+                    // MySQL DATETIME is timezone-naive
+                    use sqlx::types::chrono::NaiveDateTime;
+                    let val: Option<NaiveDateTime> = row.try_get(i).map_err(|e| {
+                        DataError::Query(format!("Failed to get datetime value: {}", e))
+                    })?;
+                    match val {
+                        Some(v) => QueryValue::Text(v.format("%Y-%m-%d %H:%M:%S").to_string()),
+                        None => QueryValue::Null,
+                    }
+                }
+                "DATE" => {
+                    // Get date as NaiveDate and convert to string
+                    use sqlx::types::chrono::NaiveDate;
+                    let val: Option<NaiveDate> = row.try_get(i).map_err(|e| {
+                        DataError::Query(format!("Failed to get date value: {}", e))
+                    })?;
+                    match val {
+                        Some(v) => QueryValue::Text(v.format("%Y-%m-%d").to_string()),
+                        None => QueryValue::Null,
+                    }
+                }
                 "BLOB" | "TINYBLOB" | "MEDIUMBLOB" | "LONGBLOB" | "BINARY" | "VARBINARY" => {
                     let val: Option<Vec<u8>> = row.try_get(i).map_err(|e| {
                         DataError::Query(format!("Failed to get bytes value: {}", e))
