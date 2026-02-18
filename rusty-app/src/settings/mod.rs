@@ -2,6 +2,7 @@
 //!
 //! Provides centralized configuration management with atomic saves and reload support.
 
+pub mod logging;
 mod types;
 
 pub use types::{

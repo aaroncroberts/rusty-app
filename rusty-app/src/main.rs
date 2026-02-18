@@ -12,23 +12,21 @@ use rusty_app::menu_bar::{MenuBar, MenuAction, MenuItem};
 use rusty_app::status_bar::{ConnectionStatus, StatusBar};
 use rusty_app::theme::ThemeColors;
 use rusty_app::views::{RegionId, ViewRegistry};
+use rusty_app::settings::{logging::build_logging_config, SettingsManager};
 use rusty_data::adapter::{ConnectionConfig, DatabaseType};
 use rusty_data::config::ConfigManager;
-use rusty_logging::LoggingConfig;
 use std::collections::HashMap;
 use tracing::{info, warn};
 
 pub fn main() -> iced::Result {
-    // Initialize logging (fulfills rusty-data's logging needs via dependency inversion)
-    LoggingConfig::builder()
-        .with_console_compact()
-        .with_console_filter("info")
-        .with_file_text()
-        .with_file_filter("debug")
-        .with_file_directory("./logs")
-        .with_file_prefix("rusty-app")
-        .build()
-        .expect("Invalid logging configuration")
+    // Load settings and configure logging
+    let settings_manager = SettingsManager::new("~/.rusty-app")
+        .expect("Failed to initialize settings manager");
+
+    let logging_config = build_logging_config(&settings_manager.settings().logging)
+        .expect("Invalid logging configuration");
+
+    logging_config
         .apply()
         .expect("Failed to initialize logging");
 
@@ -55,6 +53,7 @@ struct DatabaseIDE {
     connection_status: ConnectionStatus,
     config_manager: ConfigManager,
     container_manager: ContainerManager,
+    settings_manager: SettingsManager,
     saved_connections: Vec<ConnectionConfig>,
     showing_connection_form: bool,
     connection_form_data: ConnectionFormData,
@@ -67,7 +66,20 @@ struct DatabaseIDE {
 
 impl Default for DatabaseIDE {
     fn default() -> Self {
-        let theme = ThemeColors::dark();
+        // Initialize SettingsManager
+        let settings_manager = SettingsManager::new("~/.rusty-app")
+            .expect("Failed to initialize settings manager");
+
+        // Load UI preferences from settings (clone to avoid borrow issues)
+        let ui_prefs = settings_manager.settings().ui_preferences.clone();
+
+        // Set theme based on settings
+        let theme = if ui_prefs.theme == "dark" {
+            ThemeColors::dark()
+        } else {
+            ThemeColors::dark() // TODO: Add ThemeColors::light()
+        };
+
         let mut main_panel = MainPanel::new(theme);
 
         // Create an initial tab
@@ -152,20 +164,26 @@ impl Default for DatabaseIDE {
             main_panel,
             status_bar: StatusBar::new(theme),
             connection_form: ConnectionForm::new(theme),
-            panel_width: left_panel::DEFAULT_WIDTH,
-            active_component: Some(ComponentId::ServerList), // Default to ServerList
+            panel_width: ui_prefs.panel_width as f32,
+            active_component: match ui_prefs.active_component.as_str() {
+                "server_list" => Some(ComponentId::ServerList),
+                "table_list" => Some(ComponentId::TableList),
+                "properties" => Some(ComponentId::Properties),
+                _ => Some(ComponentId::ServerList),
+            },
             is_resizing: false,
             last_mouse_x: None,
             connection_status: ConnectionStatus::default(),
             config_manager,
             container_manager,
+            settings_manager,
             saved_connections,
             showing_connection_form: false,
             connection_form_data: ConnectionFormData::new(),
             testing_connection: false,
             test_result: None,
             open_menu: None,
-            show_left_panel: true,
+            show_left_panel: ui_prefs.show_left_panel,
             view_registry,
         }
     }
