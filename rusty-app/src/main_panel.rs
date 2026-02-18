@@ -3,9 +3,11 @@
 //! Provides a tabbed interface for managing multiple query sessions,
 //! displaying results, and interacting with the database.
 
+use crate::query_editor::QueryEditor;
 use crate::theme::ThemeColors;
 use iced::widget::{button, column, container, row, text};
 use iced::{Border, Element, Fill};
+use std::collections::HashMap;
 
 /// Identifier for a tab
 pub type TabId = usize;
@@ -25,12 +27,12 @@ impl Tab {
 }
 
 /// Main panel component that displays query editor and results
-#[derive(Debug, Clone)]
 pub struct MainPanel {
     theme: ThemeColors,
     tabs: Vec<Tab>,
     active_tab_id: Option<TabId>,
     next_tab_id: TabId,
+    query_editors: HashMap<TabId, QueryEditor>,
 }
 
 impl MainPanel {
@@ -41,6 +43,7 @@ impl MainPanel {
             tabs: Vec::new(),
             active_tab_id: None,
             next_tab_id: 0,
+            query_editors: HashMap::new(),
         }
     }
 
@@ -52,6 +55,10 @@ impl MainPanel {
         let tab = Tab::new(id, title);
         self.tabs.push(tab);
         self.active_tab_id = Some(id);
+
+        // Create a query editor for this tab
+        let editor = QueryEditor::new(self.theme);
+        self.query_editors.insert(id, editor);
 
         id
     }
@@ -67,6 +74,9 @@ impl MainPanel {
     pub fn close_tab(&mut self, id: TabId) {
         if let Some(pos) = self.tabs.iter().position(|t| t.id == id) {
             self.tabs.remove(pos);
+
+            // Remove the query editor for this tab
+            self.query_editors.remove(&id);
 
             // If we closed the active tab, activate another one
             if self.active_tab_id == Some(id) {
@@ -98,12 +108,41 @@ impl MainPanel {
         on_new_tab: Message,
         on_tab_click: impl Fn(TabId) -> Message + 'a,
         on_tab_close: impl Fn(TabId) -> Message + 'a,
+        on_query_editor: impl Fn(TabId, crate::query_editor::QueryEditorMessage) -> Message + 'a + Copy,
     ) -> Element<'a, Message> {
         let theme = self.theme;
+        let on_new_tab_clone = on_new_tab.clone();
+
+        // Map query editor messages to the parent message type
+        let tab_id = self.active_tab_id;
+        let mapped_content = if let Some(id) = tab_id {
+            self.tab_content().map(move |msg| on_query_editor(id, msg))
+        } else {
+            // No active tab - show empty state
+            container(
+                column![
+                    text("No tabs open")
+                        .size(16)
+                        .color(theme.text_secondary),
+                    text("Click + to create a new tab")
+                        .size(12)
+                        .color(theme.text_secondary),
+                ]
+                .spacing(10)
+            )
+            .width(Fill)
+            .height(Fill)
+            .padding(20)
+            .style(move |_theme| container::Style {
+                background: Some(theme.background.into()),
+                ..Default::default()
+            })
+            .into()
+        };
 
         let content = column![
-            self.tab_bar(on_new_tab, on_tab_click, on_tab_close),
-            self.tab_content(),
+            self.tab_bar(on_new_tab_clone, on_tab_click, on_tab_close),
+            mapped_content,
         ]
         .spacing(0);
 
@@ -223,43 +262,51 @@ impl MainPanel {
     }
 
     /// Render the content area for the active tab
-    fn tab_content<'a, Message: 'a + Clone>(&'a self) -> Element<'a, Message> {
+    fn tab_content(&self) -> Element<crate::query_editor::QueryEditorMessage> {
         let theme = self.theme;
 
-        let content = if let Some(tab) = self.active_tab() {
-            // Placeholder content for now
-            column![
-                text(format!("Tab: {}", tab.title))
-                    .size(16)
-                    .color(theme.text),
-                text("Query editor will appear here")
-                    .size(12)
-                    .color(theme.text_secondary),
-            ]
-            .spacing(10)
-            .padding(20)
+        if let Some(tab) = self.active_tab() {
+            // Display the query editor for this tab
+            if let Some(editor) = self.query_editors.get(&tab.id) {
+                editor.view()
+            } else {
+                // Editor not found (shouldn't happen)
+                container(
+                    text("Error: Query editor not found")
+                        .size(16)
+                        .color(theme.text_secondary)
+                )
+                .width(Fill)
+                .height(Fill)
+                .padding(20)
+                .style(move |_theme| container::Style {
+                    background: Some(theme.background.into()),
+                    ..Default::default()
+                })
+                .into()
+            }
         } else {
             // No active tab
-            column![
-                text("No tabs open")
-                    .size(16)
-                    .color(theme.text_secondary),
-                text("Click + to create a new tab")
-                    .size(12)
-                    .color(theme.text_secondary),
-            ]
-            .spacing(10)
-            .padding(20)
-        };
-
-        container(content)
+            container(
+                column![
+                    text("No tabs open")
+                        .size(16)
+                        .color(theme.text_secondary),
+                    text("Click + to create a new tab")
+                        .size(12)
+                        .color(theme.text_secondary),
+                ]
+                .spacing(10)
+            )
             .width(Fill)
             .height(Fill)
+            .padding(20)
             .style(move |_theme| container::Style {
                 background: Some(theme.background.into()),
                 ..Default::default()
             })
             .into()
+        }
     }
 }
 
@@ -278,24 +325,8 @@ mod tests {
         assert_eq!(panel.next_tab_id, 0);
     }
 
-    #[test]
-    fn test_main_panel_cloneable() {
-        let theme = ThemeColors::dark();
-        let panel = MainPanel::new(theme);
-        let cloned = panel.clone();
-
-        assert_eq!(panel.theme, cloned.theme);
-        assert_eq!(panel.tabs.len(), cloned.tabs.len());
-    }
-
-    #[test]
-    fn test_main_panel_debug() {
-        let theme = ThemeColors::dark();
-        let panel = MainPanel::new(theme);
-
-        let debug_str = format!("{:?}", panel);
-        assert!(debug_str.contains("MainPanel"));
-    }
+    // Note: MainPanel doesn't implement Clone or Debug because QueryEditor
+    // contains text_editor::Content which doesn't implement Clone
 
     #[test]
     fn test_add_tab() {

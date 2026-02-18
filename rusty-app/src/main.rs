@@ -15,6 +15,7 @@ use rusty_app::mongodb_connection_form::{MongoDBConnectionForm, MongoDBConnectio
 use rusty_app::mysql_connection_form::{MySQLConnectionForm, MySQLConnectionFormData, MySQLConnectionFormMessage};
 use rusty_app::oracle_connection_form::{OracleConnectionForm, OracleConnectionFormData, OracleConnectionFormMessage};
 use rusty_app::postgres_connection_form::{PostgresConnectionForm, PostgresConnectionFormData, PostgresConnectionFormMessage};
+use rusty_app::query_editor::QueryEditorMessage;
 use rusty_app::settings::{logging::build_logging_config, SettingsManager};
 use rusty_app::settings_editor::{SettingsEditor, SettingsEditorData, SettingsEditorMessage};
 use rusty_app::sqlite_connection_form::{SQLiteConnectionForm, SQLiteConnectionFormData, SQLiteConnectionFormMessage};
@@ -307,6 +308,7 @@ enum Message {
     NewMainTab,
     MainTabClicked(TabId),
     MainTabClosed(TabId),
+    QueryEditor(TabId, QueryEditorMessage),
     NewConnection,
     ConnectionForm(ConnectionFormMessage),
     ConnectionTestResult(Result<(), String>),
@@ -508,6 +510,19 @@ impl DatabaseIDE {
             }
             Message::MainTabClosed(id) => {
                 self.main_panel.close_tab(id);
+                Task::none()
+            }
+            Message::QueryEditor(_tab_id, query_msg) => {
+                // Handle query editor messages
+                // For now, we just ignore them - will implement in task 4
+                match query_msg {
+                    QueryEditorMessage::ActionPerformed(_) => {
+                        // Text changed
+                    }
+                    QueryEditorMessage::Execute => {
+                        // Execute query - will be implemented in task 4
+                    }
+                }
                 Task::none()
             }
             Message::NewConnection => {
@@ -1640,6 +1655,7 @@ impl DatabaseIDE {
                 Message::NewMainTab,
                 Message::MainTabClicked,
                 Message::MainTabClosed,
+                Message::QueryEditor,
             )
         }
     }
