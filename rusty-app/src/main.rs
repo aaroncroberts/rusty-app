@@ -108,6 +108,7 @@ struct DatabaseIDE {
     oracle_test_result: Option<Result<(), String>>,
     // Connection management
     connection_manager: ConnectionManager,
+    pending_connection_config: Option<(ConnectionConfig, Option<String>)>, // config and password for connection being established
     // Query execution
     executing_query: bool,
     query_results: HashMap<TabId, Option<QueryResult>>,
@@ -297,6 +298,7 @@ impl Default for DatabaseIDE {
             oracle_test_result: None,
             // Connection management
             connection_manager: ConnectionManager::new(),
+            pending_connection_config: None,
             // Query execution
             executing_query: false,
             query_results: HashMap::new(),
@@ -1482,13 +1484,16 @@ impl DatabaseIDE {
                 // Set status to connecting
                 self.connection_status = ConnectionStatus::Connecting(config.name.clone());
 
-                // Create active connection and attempt to connect
+                // Store config for later use
+                self.pending_connection_config = Some((config.clone(), password.clone()));
+
+                // Create active connection and connect it
                 let config_clone = config.clone();
                 let password_clone = password.clone();
 
                 Task::perform(
                     async move {
-                        let mut connection = ActiveConnection::new(config_clone.clone(), password_clone);
+                        let mut connection = ActiveConnection::new(config_clone.clone(), password_clone.clone());
                         let id = connection.id.clone();
                         let name = config_clone.name.clone();
                         match connection.connect().await {
@@ -1497,7 +1502,9 @@ impl DatabaseIDE {
                         }
                     },
                     |result| match result {
-                        Ok((id, name)) => Message::ConnectionOperationResult(id, Ok(ConnectionOperation::Connected(name))),
+                        Ok((id, name)) => {
+                            Message::ConnectionOperationResult(id, Ok(ConnectionOperation::Connected(name)))
+                        }
                         Err((id, e)) => Message::ConnectionOperationResult(id, Err(e)),
                     }
                 )
@@ -1527,20 +1534,32 @@ impl DatabaseIDE {
                     Task::none()
                 }
             }
-            Message::ConnectionOperationResult(_connection_id, result) => {
+            Message::ConnectionOperationResult(connection_id, result) => {
                 match result {
                     Ok(ConnectionOperation::Connected(name)) => {
-                        // Connection successful - update status
+                        // Connection successful - create and store the connection
+                        if let Some((config, password)) = self.pending_connection_config.take() {
+                            if config.id == connection_id {
+                                // Create a new connected connection and add to manager
+                                let mut connection = ActiveConnection::new(config, password);
+                                // Mark as connected (connect was already successful in async task)
+                                connection.status = rusty_app::connection_manager::ConnectionStatus::Connected;
+                                self.connection_manager.add_connection(connection);
+                                self.connection_manager.set_selected(Some(connection_id));
+                                self.connection_status = ConnectionStatus::Connected(name);
+                                return Task::none();
+                            }
+                        }
+                        // No pending config - just update status
                         self.connection_status = ConnectionStatus::Connected(name);
-                        // TODO: Actually store the connection in the manager
-                        // (requires passing the connection through the message or storing it temporarily)
                     }
                     Ok(ConnectionOperation::Disconnected) => {
                         // Disconnect successful - update status
                         self.connection_status = ConnectionStatus::Disconnected;
                     }
                     Err(error) => {
-                        // Operation failed - show error
+                        // Operation failed - show error and clear pending
+                        self.pending_connection_config = None;
                         self.connection_status = ConnectionStatus::Error(error);
                     }
                 }
