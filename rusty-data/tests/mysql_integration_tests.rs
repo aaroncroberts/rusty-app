@@ -35,14 +35,18 @@ fn get_mysql_config(database: &str) -> ConnectionConfig {
 /// Ensure test database exists (idempotent, called once per suite)
 async fn ensure_test_database() -> Result<()> {
     let mut adapter = MySqlAdapter::new();
-    let mysql_config = get_mysql_config("mysql");
+    // Use root credentials to create database
+    let mut root_config = get_mysql_config("mysql");
+    root_config.username = Some("root".to_string());
 
-    adapter.connect(&mysql_config, Some(TEST_PASSWORD)).await?;
+    adapter.connect(&root_config, Some("root_password")).await?;
 
     info!("Creating MySQL test database: {}", TEST_DB_NAME);
 
     // Create database if it doesn't exist
     let _ = adapter.execute_query(&format!("CREATE DATABASE IF NOT EXISTS {}", TEST_DB_NAME)).await?;
+    // Grant all privileges to test_user
+    let _ = adapter.execute_query(&format!("GRANT ALL PRIVILEGES ON {}.* TO 'test_user'@'%'", TEST_DB_NAME)).await?;
 
     adapter.disconnect().await?;
     debug!("MySQL test database ready: {}", TEST_DB_NAME);
@@ -469,9 +473,11 @@ async fn test_zzz_cleanup_mysql_database() -> Result<()> {
     info!("Cleaning up MySQL test database: {}", TEST_DB_NAME);
 
     let mut adapter = MySqlAdapter::new();
-    let mysql_config = get_mysql_config("mysql");
+    // Use root credentials to drop database
+    let mut root_config = get_mysql_config("mysql");
+    root_config.username = Some("root".to_string());
 
-    adapter.connect(&mysql_config, Some(TEST_PASSWORD)).await?;
+    adapter.connect(&root_config, Some("root_password")).await?;
 
     // Drop test database
     adapter.execute_query(&format!("DROP DATABASE IF EXISTS {}", TEST_DB_NAME)).await?;

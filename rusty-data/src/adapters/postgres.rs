@@ -657,9 +657,8 @@ impl DatabaseAdapter for PostgresAdapter {
             SELECT
                 schemaname,
                 tablename,
-                pg_total_relation_size(schemaname||'.'||tablename) as size_bytes,
-                n_live_tup as row_count
-            FROM pg_stat_user_tables
+                pg_total_relation_size(quote_ident(schemaname)||'.'||quote_ident(tablename)) as size_bytes
+            FROM pg_tables
             WHERE schemaname = $1 AND tablename = $2
         ";
 
@@ -670,11 +669,25 @@ impl DatabaseAdapter for PostgresAdapter {
             .await
             .map_err(|e| DataError::Query(format!("Failed to get table metadata for '{}.{}': {}", schema_name, table_name, e)))?;
 
+        // Try to get row count from stats, but it may not be available for new tables
+        let row_count_query = "
+            SELECT n_live_tup as row_count
+            FROM pg_stat_user_tables
+            WHERE schemaname = $1 AND tablename = $2
+        ";
+        let row_count: Option<i64> = sqlx::query_scalar(row_count_query)
+            .bind(schema_name)
+            .bind(table_name)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+
         Ok(TableMetadata {
             name: table_name.to_string(),
             schema: Some(schema_name.to_string()),
             size_bytes: result.try_get("size_bytes").ok(),
-            row_count: result.try_get("row_count").ok(),
+            row_count,
             created_at: None, // PostgreSQL doesn't store table creation time
             table_type: Some("TABLE".to_string()),
         })

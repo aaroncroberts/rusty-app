@@ -10,7 +10,7 @@ use futures_util::stream::TryStreamExt;
 use tiberius::{AuthMethod, Client, Config, QueryItem, Row};
 use tokio::net::TcpStream;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
-use tracing::{info, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 /// Microsoft SQL Server database adapter using tiberius
 pub struct MssqlAdapter {
