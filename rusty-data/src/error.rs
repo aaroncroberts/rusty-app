@@ -30,6 +30,9 @@ pub enum DataError {
     #[error("Authentication failed: {0}")]
     Authentication(String),
 
+    #[error("Operation not supported: {0}")]
+    NotSupported(String),
+
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }

@@ -281,6 +281,52 @@ pub trait DatabaseAdapter: Send + Sync {
         // Default implementation returns empty list
         Ok(Vec::new())
     }
+
+    // ===== Bulk Operations =====
+
+    /// Bulk insert multiple rows efficiently
+    /// Returns the number of rows inserted
+    async fn bulk_insert(
+        &self,
+        _table_name: &str,
+        _columns: &[String],
+        _rows: &[Vec<QueryValue>],
+        _schema: Option<&str>,
+    ) -> Result<u64> {
+        // Default implementation falls back to individual inserts
+        // Adapters should override with database-specific bulk insert mechanisms
+        Err(crate::error::DataError::NotSupported(
+            "Bulk insert not implemented for this adapter".to_string()
+        ))
+    }
+
+    /// Bulk update multiple rows efficiently
+    /// Returns the number of rows updated
+    async fn bulk_update(
+        &self,
+        _table_name: &str,
+        _updates: &[(HashMap<String, QueryValue>, String)], // (column_values, where_clause)
+        _schema: Option<&str>,
+    ) -> Result<u64> {
+        // Default implementation falls back to individual updates
+        Err(crate::error::DataError::NotSupported(
+            "Bulk update not implemented for this adapter".to_string()
+        ))
+    }
+
+    /// Bulk delete multiple rows efficiently
+    /// Returns the number of rows deleted
+    async fn bulk_delete(
+        &self,
+        _table_name: &str,
+        _where_clauses: &[String],
+        _schema: Option<&str>,
+    ) -> Result<u64> {
+        // Default implementation falls back to individual deletes
+        Err(crate::error::DataError::NotSupported(
+            "Bulk delete not implemented for this adapter".to_string()
+        ))
+    }
 }
 
 #[cfg(test)]
