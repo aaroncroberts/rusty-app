@@ -7,6 +7,8 @@ use std::process::Command;
 use thiserror::Error;
 
 mod types;
+pub mod converter;
+
 pub use types::{ContainerInfo, ContainerStatus};
 
 /// Errors that can occur during container operations

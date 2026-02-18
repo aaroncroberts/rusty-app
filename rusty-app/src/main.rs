@@ -4,6 +4,8 @@ use iced::event::Event;
 use iced::mouse;
 use rusty_app::components::{ComponentAction, ComponentId, PropertiesComponent, ServerListComponent, TableListComponent};
 use rusty_app::connection_form::{ConnectionForm, ConnectionFormData, ConnectionFormMessage};
+use rusty_app::container::ContainerManager;
+use rusty_app::container::converter::sync_connections_with_containers;
 use rusty_app::left_panel::{self, LeftPanel};
 use rusty_app::main_panel::{MainPanel, TabId};
 use rusty_app::menu_bar::{MenuBar, MenuAction, MenuItem};
@@ -52,6 +54,7 @@ struct DatabaseIDE {
     last_mouse_x: Option<f32>,
     connection_status: ConnectionStatus,
     config_manager: ConfigManager,
+    container_manager: ContainerManager,
     saved_connections: Vec<ConnectionConfig>,
     showing_connection_form: bool,
     connection_form_data: ConnectionFormData,
@@ -74,8 +77,11 @@ impl Default for DatabaseIDE {
         let config_manager = ConfigManager::new("~/.rusty-app")
             .expect("Failed to initialize config manager");
 
+        // Initialize ContainerManager
+        let container_manager = ContainerManager::new("rusty-data");
+
         // Load saved connections
-        let saved_connections = config_manager
+        let mut saved_connections = config_manager
             .load_connections()
             .unwrap_or_else(|e| {
                 warn!("Failed to load connections: {}", e);
@@ -83,6 +89,45 @@ impl Default for DatabaseIDE {
             });
 
         info!(count = saved_connections.len(), "Loaded saved connections");
+
+        // Sync connections with running containers
+        if container_manager.is_podman_available() {
+            match container_manager.list_containers() {
+                Ok(containers) => {
+                    let running_containers: Vec<_> = containers
+                        .iter()
+                        .filter(|c| c.is_running())
+                        .cloned()
+                        .collect();
+
+                    info!(
+                        count = running_containers.len(),
+                        "Found running containers"
+                    );
+
+                    // Sync connections with container state
+                    saved_connections = sync_connections_with_containers(
+                        &running_containers,
+                        &saved_connections,
+                    );
+
+                    // Save updated connections
+                    if let Err(e) = config_manager.save_connections(&saved_connections) {
+                        warn!("Failed to save synced connections: {}", e);
+                    } else {
+                        info!(
+                            count = saved_connections.len(),
+                            "Synced connections with container state"
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to list containers: {}", e);
+                }
+            }
+        } else {
+            info!("Podman not available, skipping container sync");
+        }
 
         // Create and register components in ViewRegistry
         let mut view_registry = ViewRegistry::new();
@@ -113,6 +158,7 @@ impl Default for DatabaseIDE {
             last_mouse_x: None,
             connection_status: ConnectionStatus::default(),
             config_manager,
+            container_manager,
             saved_connections,
             showing_connection_form: false,
             connection_form_data: ConnectionFormData::new(),
