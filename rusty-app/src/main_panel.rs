@@ -145,11 +145,11 @@ impl MainPanel {
                 theme.text_secondary
             };
 
-            // Tab button with title and close button
+            // Tab button with title and close button (consistent height)
             let tab_content = row![
                 button(text(&tab.title).size(12).color(text_color))
                     .on_press(on_tab_click(tab_id))
-                    .padding([6, 12])
+                    .padding([8, 12])
                     .style(move |_theme, status| button::Style {
                         background: Some(bg_color.into()),
                         text_color,
@@ -164,9 +164,9 @@ impl MainPanel {
                         },
                         ..Default::default()
                     }),
-                button(text("×").size(14).color(text_color))
+                button(text("×").size(16).color(text_color))
                     .on_press(on_tab_close(tab_id))
-                    .padding([4, 8])
+                    .padding([8, 10])
                     .style(move |_theme, status| button::Style {
                         background: Some(bg_color.into()),
                         text_color: if matches!(status, button::Status::Hovered) {
@@ -183,10 +183,10 @@ impl MainPanel {
             tabs_row = tabs_row.push(tab_content);
         }
 
-        // New tab button
+        // New tab button (consistent height with other buttons)
         let new_tab_btn = button(text("+").size(16))
             .on_press(on_new_tab)
-            .padding([6, 12])
+            .padding([8, 12])
             .style(move |_theme, status| button::Style {
                 background: Some(theme.background_secondary.into()),
                 text_color: if matches!(status, button::Status::Hovered) {

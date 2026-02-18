@@ -6,7 +6,7 @@ use rusty_app::main_panel::{MainPanel, TabId};
 use rusty_app::menu_bar::{MenuBar, MenuItem};
 use rusty_app::status_bar::{ConnectionStatus, StatusBar};
 use rusty_app::theme::ThemeColors;
-use rusty_data::adapter::{ConnectionConfig, DatabaseAdapter, DatabaseType};
+use rusty_data::adapter::{ConnectionConfig, DatabaseType};
 use rusty_data::config::ConfigManager;
 use rusty_logging::LoggingConfig;
 use std::collections::HashMap;
@@ -114,6 +114,7 @@ enum Message {
 
 /// Test database connection with appropriate adapter
 async fn test_database_connection(config: ConnectionConfig, password: Option<String>) -> rusty_data::Result<bool> {
+    use rusty_data::adapter::DatabaseAdapter;
     use rusty_data::adapters;
 
     let password_ref = password.as_deref();

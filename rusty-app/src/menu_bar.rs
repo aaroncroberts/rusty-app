@@ -1,20 +1,19 @@
 //! Menu bar component for the Database IDE
 //!
 //! Provides a horizontal menu bar that spans the full width of the window
-//! with a dark theme background and clickable menu items.
+//! with a dark theme background and clickable menu items with dropdown submenus.
 
 use crate::theme::ThemeColors;
-use iced::widget::{button, container, row, text};
-use iced::{Border, Element, Fill};
+use iced::widget::{button, column, container, row, text};
+use iced::{Border, Element, Fill, Length};
 
-/// Available menu items in the menu bar
+/// Top-level menu items in the menu bar
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuItem {
     File,
     Edit,
     View,
     Tools,
-    NewConnection,
 }
 
 impl MenuItem {
@@ -25,7 +24,6 @@ impl MenuItem {
             MenuItem::Edit => "Edit",
             MenuItem::View => "View",
             MenuItem::Tools => "Tools",
-            MenuItem::NewConnection => "File > New > Connection",
         }
     }
 
@@ -33,6 +31,128 @@ impl MenuItem {
     pub fn all() -> &'static [MenuItem] {
         &[MenuItem::File, MenuItem::Edit, MenuItem::View, MenuItem::Tools]
     }
+}
+
+/// Submenu items for the File menu
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileMenuItem {
+    NewConnection,
+    OpenConnection,
+    SaveQuery,
+    Exit,
+}
+
+impl FileMenuItem {
+    pub fn name(&self) -> &'static str {
+        match self {
+            FileMenuItem::NewConnection => "New Connection",
+            FileMenuItem::OpenConnection => "Open Connection...",
+            FileMenuItem::SaveQuery => "Save Query",
+            FileMenuItem::Exit => "Exit",
+        }
+    }
+
+    pub fn all() -> &'static [FileMenuItem] {
+        &[
+            FileMenuItem::NewConnection,
+            FileMenuItem::OpenConnection,
+            FileMenuItem::SaveQuery,
+            FileMenuItem::Exit,
+        ]
+    }
+}
+
+/// Submenu items for the Edit menu
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditMenuItem {
+    Undo,
+    Redo,
+    Cut,
+    Copy,
+    Paste,
+}
+
+impl EditMenuItem {
+    pub fn name(&self) -> &'static str {
+        match self {
+            EditMenuItem::Undo => "Undo",
+            EditMenuItem::Redo => "Redo",
+            EditMenuItem::Cut => "Cut",
+            EditMenuItem::Copy => "Copy",
+            EditMenuItem::Paste => "Paste",
+        }
+    }
+
+    pub fn all() -> &'static [EditMenuItem] {
+        &[
+            EditMenuItem::Undo,
+            EditMenuItem::Redo,
+            EditMenuItem::Cut,
+            EditMenuItem::Copy,
+            EditMenuItem::Paste,
+        ]
+    }
+}
+
+/// Submenu items for the View menu
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewMenuItem {
+    ShowServerPanel,
+    ShowQueryPanel,
+    ShowResultsPanel,
+}
+
+impl ViewMenuItem {
+    pub fn name(&self) -> &'static str {
+        match self {
+            ViewMenuItem::ShowServerPanel => "Server Panel",
+            ViewMenuItem::ShowQueryPanel => "Query Panel",
+            ViewMenuItem::ShowResultsPanel => "Results Panel",
+        }
+    }
+
+    pub fn all() -> &'static [ViewMenuItem] {
+        &[
+            ViewMenuItem::ShowServerPanel,
+            ViewMenuItem::ShowQueryPanel,
+            ViewMenuItem::ShowResultsPanel,
+        ]
+    }
+}
+
+/// Submenu items for the Tools menu
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolsMenuItem {
+    Preferences,
+    ExportData,
+    ImportData,
+}
+
+impl ToolsMenuItem {
+    pub fn name(&self) -> &'static str {
+        match self {
+            ToolsMenuItem::Preferences => "Preferences...",
+            ToolsMenuItem::ExportData => "Export Data",
+            ToolsMenuItem::ImportData => "Import Data",
+        }
+    }
+
+    pub fn all() -> &'static [ToolsMenuItem] {
+        &[
+            ToolsMenuItem::Preferences,
+            ToolsMenuItem::ExportData,
+            ToolsMenuItem::ImportData,
+        ]
+    }
+}
+
+/// All possible menu actions
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuAction {
+    File(FileMenuItem),
+    Edit(EditMenuItem),
+    View(ViewMenuItem),
+    Tools(ToolsMenuItem),
 }
 
 /// Menu bar component that renders at the top of the window
@@ -47,10 +167,13 @@ impl MenuBar {
         Self { theme }
     }
 
-    /// Render the menu bar component with menu items
+    /// Render the menu bar component with menu items and optional submenu
     pub fn view<'a, Message: 'a + Clone>(
         &'a self,
-        on_click: impl Fn(MenuItem) -> Message + 'a,
+        open_menu: Option<MenuItem>,
+        on_menu_toggle: impl Fn(MenuItem) -> Message + 'a + Copy,
+        on_menu_action: impl Fn(MenuAction) -> Message + 'a + Copy,
+        on_close_menu: Message,
     ) -> Element<'a, Message> {
         let theme = self.theme;
 
@@ -58,6 +181,8 @@ impl MenuBar {
         let menu_items = MenuItem::all()
             .iter()
             .fold(row![].spacing(0), |row, item| {
+                let is_open = open_menu == Some(*item);
+
                 let item_button = button(
                     text(item.name())
                         .size(14)
@@ -65,9 +190,13 @@ impl MenuBar {
                 )
                 .padding([6, 12])
                 .style(move |_theme, status| {
-                    let background = match status {
-                        button::Status::Hovered => Some(theme.accent.into()),
-                        _ => None,
+                    let background = if is_open {
+                        Some(theme.accent.into())
+                    } else {
+                        match status {
+                            button::Status::Hovered => Some(theme.background.into()),
+                            _ => None,
+                        }
                     };
 
                     button::Style {
@@ -77,16 +206,155 @@ impl MenuBar {
                         ..Default::default()
                     }
                 })
-                .on_press(on_click(*item));
+                .on_press(on_menu_toggle(*item));
 
                 row.push(item_button)
             });
 
-        container(menu_items)
+        let menu_bar = container(menu_items)
             .width(Fill)
             .height(40.0)
             .padding([0, 10])
             .center_y(40.0)
+            .style(move |_| container::Style {
+                background: Some(theme.background_secondary.into()),
+                border: Border {
+                    color: theme.border,
+                    width: 1.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+
+        // If a menu is open, render the submenu
+        if let Some(menu) = open_menu {
+            let submenu = self.render_submenu(menu, on_menu_action, on_close_menu);
+            column![menu_bar, submenu].spacing(0).into()
+        } else {
+            menu_bar.into()
+        }
+    }
+
+    /// Render a submenu for the given menu item
+    fn render_submenu<'a, Message: 'a + Clone>(
+        &'a self,
+        menu: MenuItem,
+        on_action: impl Fn(MenuAction) -> Message + 'a + Copy,
+        on_close: Message,
+    ) -> Element<'a, Message> {
+        let theme = self.theme;
+
+        let submenu_items = match menu {
+            MenuItem::File => {
+                FileMenuItem::all()
+                    .iter()
+                    .fold(column![].spacing(0), |col, item| {
+                        let item_button = button(
+                            text(item.name())
+                                .size(13)
+                                .color(theme.text)
+                        )
+                        .width(Length::Fixed(200.0))
+                        .padding([8, 16])
+                        .style(move |_theme, status| button::Style {
+                            background: Some(if matches!(status, button::Status::Hovered) {
+                                theme.accent.into()
+                            } else {
+                                theme.background_secondary.into()
+                            }),
+                            text_color: theme.text,
+                            border: Border::default(),
+                            ..Default::default()
+                        })
+                        .on_press(on_action(MenuAction::File(*item)));
+
+                        col.push(item_button)
+                    })
+            }
+            MenuItem::Edit => {
+                EditMenuItem::all()
+                    .iter()
+                    .fold(column![].spacing(0), |col, item| {
+                        let item_button = button(
+                            text(item.name())
+                                .size(13)
+                                .color(theme.text)
+                        )
+                        .width(Length::Fixed(200.0))
+                        .padding([8, 16])
+                        .style(move |_theme, status| button::Style {
+                            background: Some(if matches!(status, button::Status::Hovered) {
+                                theme.accent.into()
+                            } else {
+                                theme.background_secondary.into()
+                            }),
+                            text_color: theme.text,
+                            border: Border::default(),
+                            ..Default::default()
+                        })
+                        .on_press(on_action(MenuAction::Edit(*item)));
+
+                        col.push(item_button)
+                    })
+            }
+            MenuItem::View => {
+                ViewMenuItem::all()
+                    .iter()
+                    .fold(column![].spacing(0), |col, item| {
+                        let item_button = button(
+                            text(item.name())
+                                .size(13)
+                                .color(theme.text)
+                        )
+                        .width(Length::Fixed(200.0))
+                        .padding([8, 16])
+                        .style(move |_theme, status| button::Style {
+                            background: Some(if matches!(status, button::Status::Hovered) {
+                                theme.accent.into()
+                            } else {
+                                theme.background_secondary.into()
+                            }),
+                            text_color: theme.text,
+                            border: Border::default(),
+                            ..Default::default()
+                        })
+                        .on_press(on_action(MenuAction::View(*item)));
+
+                        col.push(item_button)
+                    })
+            }
+            MenuItem::Tools => {
+                ToolsMenuItem::all()
+                    .iter()
+                    .fold(column![].spacing(0), |col, item| {
+                        let item_button = button(
+                            text(item.name())
+                                .size(13)
+                                .color(theme.text)
+                        )
+                        .width(Length::Fixed(200.0))
+                        .padding([8, 16])
+                        .style(move |_theme, status| button::Style {
+                            background: Some(if matches!(status, button::Status::Hovered) {
+                                theme.accent.into()
+                            } else {
+                                theme.background_secondary.into()
+                            }),
+                            text_color: theme.text,
+                            border: Border::default(),
+                            ..Default::default()
+                        })
+                        .on_press(on_action(MenuAction::Tools(*item)));
+
+                        col.push(item_button)
+                    })
+            }
+        };
+
+        // Render submenu as a dropdown
+        container(submenu_items)
+            .width(Length::Fixed(200.0))
+            .padding(2)
             .style(move |_| container::Style {
                 background: Some(theme.background_secondary.into()),
                 border: Border {

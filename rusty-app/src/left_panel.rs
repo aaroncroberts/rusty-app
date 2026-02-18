@@ -68,7 +68,7 @@ impl LeftPanel {
         active_tab: PanelTab,
         connections: &'a [rusty_data::adapter::ConnectionConfig],
         on_tab_click: impl Fn(PanelTab) -> Message + 'a,
-        _on_resize_start: Message,
+        on_resize_start: Message,
         on_new_connection: Message,
     ) -> Element<'a, Message> {
         let theme = self.theme;
@@ -80,12 +80,19 @@ impl LeftPanel {
         ]
         .spacing(0);
 
-        // Resize handle (vertical bar on right edge)
-        let resize_handle = container(horizontal_space())
+        // Resize handle (vertical bar on right edge) - visual indicator
+        // TODO: Implement drag functionality using subscriptions for mouse events
+        let resize_handle = button(horizontal_space())
             .width(RESIZE_HANDLE_WIDTH)
             .height(Fill)
-            .style(move |_theme| container::Style {
-                background: Some(theme.border.into()),
+            .on_press(on_resize_start)
+            .style(move |_theme, status| button::Style {
+                background: Some(if matches!(status, button::Status::Hovered) {
+                    theme.accent.into()
+                } else {
+                    theme.border.into()
+                }),
+                border: Border::default(),
                 ..Default::default()
             });
 
@@ -121,7 +128,7 @@ impl LeftPanel {
     ) -> Element<'a, Message> {
         let theme = self.theme;
 
-        // Create tab buttons
+        // Create tab buttons with proper tab styling
         let tabs = PanelTab::all()
             .iter()
             .fold(row![].spacing(0), |row, tab| {
@@ -135,18 +142,22 @@ impl LeftPanel {
                 .padding([8, 16])
                 .style(move |_theme, status| {
                     let background = if is_active {
-                        Some(theme.accent.into())
+                        Some(theme.background.into())
                     } else {
                         match status {
                             button::Status::Hovered => Some(theme.background_secondary.into()),
-                            _ => None,
+                            _ => Some(theme.background_secondary.into()),
                         }
                     };
 
                     button::Style {
                         background,
                         text_color: if is_active { theme.text } else { theme.text_secondary },
-                        border: Border::default(),
+                        border: Border {
+                            color: theme.border,
+                            width: if is_active { 0.0 } else { 1.0 },
+                            ..Default::default()
+                        },
                         ..Default::default()
                     }
                 })

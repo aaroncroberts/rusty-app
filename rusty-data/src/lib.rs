@@ -48,7 +48,8 @@ pub use error::{DataError, Result};
 pub mod adapter;
 pub mod config;
 pub mod error;
+pub mod pool;
 
 // Optional database adapter modules (enabled via features)
-#[cfg(any(feature = "postgres", feature = "mysql", feature = "sqlite"))]
+#[cfg(any(feature = "postgres", feature = "mysql", feature = "sqlite", feature = "mongodb", feature = "mssql", feature = "oracle"))]
 pub mod adapters;
