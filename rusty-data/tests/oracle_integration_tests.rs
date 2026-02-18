@@ -8,7 +8,8 @@
 // database instance.
 //
 // Note: Tests are marked with #[ignore] and require a running Oracle instance
-// (typically Oracle XE 21c or later) with appropriate credentials configured.
+// (Oracle Database 23ai Free - ARM-compatible) with appropriate credentials configured.
+// Run tests with: cargo test --features oracle --test oracle_integration_tests -- --ignored
 
 use rusty_data::adapter::{ConnectionConfig, DatabaseAdapter, DatabaseType};
 use rusty_data::adapters::oracle::OracleAdapter;
@@ -18,9 +19,10 @@ use tracing::{debug, info};
 
 // Oracle test database - shared across all tests
 // For Oracle, we use a schema/user instead of creating a new database
-const TEST_DB_NAME: &str = "XE"; // Service name
+// Using Oracle 23ai Free (ARM-compatible for Apple Silicon)
+const TEST_DB_NAME: &str = "FREE"; // Service name (changed from XE to FREE for Oracle 23ai)
 const TEST_USER: &str = "system";
-const TEST_PASSWORD: &str = "Test_Password123!";
+const TEST_PASSWORD: &str = "TestPassword123"; // Password without special chars for container compatibility
 
 // One-time database setup
 static INIT: AtomicBool = AtomicBool::new(false);
@@ -40,7 +42,7 @@ fn get_oracle_config(database: &str) -> ConnectionConfig {
 }
 
 async fn ensure_test_database() -> Result<()> {
-    // For Oracle, the XE database already exists
+    // For Oracle, the FREE database already exists (Oracle 23ai Free)
     // We just need to ensure we can connect
     let mut adapter = OracleAdapter::new();
     let config = get_oracle_config(TEST_DB_NAME);
@@ -323,9 +325,9 @@ async fn test_oracle_get_database_metadata() -> Result<()> {
     let mut adapter = setup().await?;
 
     info!("Testing get_database_metadata");
-    let db_meta = adapter.get_database_metadata("XE").await?;
+    let db_meta = adapter.get_database_metadata("FREE").await?;
 
-    assert_eq!(db_meta.name, "XE");
+    assert_eq!(db_meta.name, "FREE");
     debug!("Database encoding: {:?}", db_meta.encoding);
     debug!("Database log mode: {:?}", db_meta.extra_info.get("log_mode"));
 
@@ -588,7 +590,7 @@ async fn test_oracle_list_stored_procedures() -> Result<()> {
 #[tokio::test]
 #[ignore]
 async fn test_zzz_cleanup_oracle_database() -> Result<()> {
-    info!("Oracle cleanup: Using existing XE database, no database drop needed");
+    info!("Oracle cleanup: Using existing FREE database, no database drop needed");
 
     // For Oracle, we don't drop the database as it's a shared service
     // The individual tests clean up their own tables

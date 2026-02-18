@@ -63,25 +63,27 @@ services:
       - mssql_data:/var/opt/mssql
 
   # Oracle Database - Port 1521
-  # Using Oracle XE (Express Edition) - free for development
+  # Using Oracle Database 23ai Free (ARM64 compatible)
   oracle:
-    image: container-registry.oracle.com/database/express:21.3.0-xe
+    image: container-registry.oracle.com/database/free:latest
     container_name: rusty-test-oracle
     environment:
-      ORACLE_PWD: "Test_Password123!"
+      ORACLE_PWD: "TestPassword123"
       ORACLE_CHARACTERSET: "AL32UTF8"
+      APP_USER: "test_user"
+      APP_USER_PASSWORD: "TestPassword123"
     ports:
       - "1521:1521"
       - "5500:5500"  # Oracle Enterprise Manager
     healthcheck:
-      test: ["CMD-SHELL", "echo 'SELECT 1 FROM DUAL;' | sqlplus -s system/Test_Password123!@//localhost:1521/XE || exit 1"]
+      test: ["CMD-SHELL", "echo 'SELECT 1 FROM DUAL;' | sqlplus -s system/TestPassword123@//localhost:1521/FREE || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 10
       start_period: 60s
     volumes:
       - oracle_data:/opt/oracle/oradata
-    shm_size: 1gb
+    shm_size: 2gb
 
   # MongoDB - Port 27017
   mongodb:

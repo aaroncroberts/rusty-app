@@ -73,11 +73,14 @@ impl AdapterSelector {
             .size(14)
             .color(theme.text_secondary);
 
-        // Available adapters (only show implemented ones)
+        // Available adapters
         let available_adapters = vec![
             DisplayableDatabaseType(DatabaseType::Postgres),
             DisplayableDatabaseType(DatabaseType::MySQL),
             DisplayableDatabaseType(DatabaseType::SQLite),
+            DisplayableDatabaseType(DatabaseType::MongoDB),
+            DisplayableDatabaseType(DatabaseType::SQLServer),
+            DisplayableDatabaseType(DatabaseType::Oracle),
         ];
 
         let adapter_picker = pick_list(

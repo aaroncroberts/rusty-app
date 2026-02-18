@@ -988,7 +988,7 @@ mod tests {
             db_type: DatabaseType::Oracle,
             host: Some("localhost".to_string()),
             port: Some(1521),
-            database: "XE".to_string(), // Express Edition service name
+            database: "FREE".to_string(), // Oracle 23ai Free service name
             username: Some("system".to_string()),
             use_ssl: false,
             parameters: HashMap::new(),
@@ -1014,7 +1014,7 @@ mod tests {
         let conn_str = OracleAdapter::build_connection_string(&config);
         assert!(conn_str.contains("localhost"));
         assert!(conn_str.contains("1521"));
-        assert!(conn_str.contains("XE"));
+        assert!(conn_str.contains("FREE"));
     }
 
     #[tokio::test]
@@ -1046,7 +1046,8 @@ mod tests {
     #[test]
     fn test_validate_database_name_valid() {
         assert!(OracleAdapter::validate_database_name("ORCL").is_ok());
-        assert!(OracleAdapter::validate_database_name("XE").is_ok());
+        assert!(OracleAdapter::validate_database_name("FREE").is_ok());
+        assert!(OracleAdapter::validate_database_name("XE").is_ok()); // Still valid for legacy
     }
 
     #[test]

@@ -10,11 +10,14 @@ use rusty_app::container::converter::sync_connections_with_containers;
 use rusty_app::left_panel::{self, LeftPanel};
 use rusty_app::main_panel::{MainPanel, TabId};
 use rusty_app::menu_bar::{MenuBar, MenuAction, MenuItem};
+use rusty_app::mongodb_connection_form::{MongoDBConnectionForm, MongoDBConnectionFormData, MongoDBConnectionFormMessage};
 use rusty_app::mysql_connection_form::{MySQLConnectionForm, MySQLConnectionFormData, MySQLConnectionFormMessage};
+use rusty_app::oracle_connection_form::{OracleConnectionForm, OracleConnectionFormData, OracleConnectionFormMessage};
 use rusty_app::postgres_connection_form::{PostgresConnectionForm, PostgresConnectionFormData, PostgresConnectionFormMessage};
 use rusty_app::settings::{logging::build_logging_config, SettingsManager};
 use rusty_app::settings_editor::{SettingsEditor, SettingsEditorData, SettingsEditorMessage};
 use rusty_app::sqlite_connection_form::{SQLiteConnectionForm, SQLiteConnectionFormData, SQLiteConnectionFormMessage};
+use rusty_app::sqlserver_connection_form::{SQLServerConnectionForm, SQLServerConnectionFormData, SQLServerConnectionFormMessage};
 use rusty_app::status_bar::{ConnectionStatus, StatusBar};
 use rusty_app::theme::ThemeColors;
 use rusty_app::views::{RegionId, ViewRegistry};
@@ -88,6 +91,18 @@ struct DatabaseIDE {
     sqlite_form_data: SQLiteConnectionFormData,
     sqlite_testing: bool,
     sqlite_test_result: Option<Result<(), String>>,
+    mongodb_form: MongoDBConnectionForm,
+    mongodb_form_data: MongoDBConnectionFormData,
+    mongodb_testing: bool,
+    mongodb_test_result: Option<Result<(), String>>,
+    sqlserver_form: SQLServerConnectionForm,
+    sqlserver_form_data: SQLServerConnectionFormData,
+    sqlserver_testing: bool,
+    sqlserver_test_result: Option<Result<(), String>>,
+    oracle_form: OracleConnectionForm,
+    oracle_form_data: OracleConnectionFormData,
+    oracle_testing: bool,
+    oracle_test_result: Option<Result<(), String>>,
 }
 
 impl Default for DatabaseIDE {
@@ -243,6 +258,34 @@ impl Default for DatabaseIDE {
             settings_editor_data,
             settings_validation_error: None,
             settings_success_message: None,
+            // Adapter-specific connection forms
+            showing_adapter_selector: false,
+            adapter_selector: AdapterSelector::new(theme),
+            selected_adapter: None,
+            postgres_form: PostgresConnectionForm::new(theme),
+            postgres_form_data: PostgresConnectionFormData::new(),
+            postgres_testing: false,
+            postgres_test_result: None,
+            mysql_form: MySQLConnectionForm::new(theme),
+            mysql_form_data: MySQLConnectionFormData::new(),
+            mysql_testing: false,
+            mysql_test_result: None,
+            sqlite_form: SQLiteConnectionForm::new(theme),
+            sqlite_form_data: SQLiteConnectionFormData::new(),
+            sqlite_testing: false,
+            sqlite_test_result: None,
+            mongodb_form: MongoDBConnectionForm::new(theme),
+            mongodb_form_data: MongoDBConnectionFormData::new(),
+            mongodb_testing: false,
+            mongodb_test_result: None,
+            sqlserver_form: SQLServerConnectionForm::new(theme),
+            sqlserver_form_data: SQLServerConnectionFormData::new(),
+            sqlserver_testing: false,
+            sqlserver_test_result: None,
+            oracle_form: OracleConnectionForm::new(theme),
+            oracle_form_data: OracleConnectionFormData::new(),
+            oracle_testing: false,
+            oracle_test_result: None,
         }
     }
 }
@@ -265,11 +308,49 @@ enum Message {
     ComponentAction(ComponentAction),
     ShowSettings,
     SettingsEditor(SettingsEditorMessage),
+    // Adapter-specific connection forms
+    AdapterSelector(AdapterSelectorMessage),
+    PostgresForm(PostgresConnectionFormMessage),
+    PostgresTestResult(Result<(), String>),
+    MySQLForm(MySQLConnectionFormMessage),
+    MySQLTestResult(Result<(), String>),
+    SQLiteForm(SQLiteConnectionFormMessage),
+    SQLiteTestResult(Result<(), String>),
+    MongoDBForm(MongoDBConnectionFormMessage),
+    MongoDBTestResult(Result<(), String>),
+    SQLServerForm(SQLServerConnectionFormMessage),
+    SQLServerTestResult(Result<(), String>),
+    OracleForm(OracleConnectionFormMessage),
+    OracleTestResult(Result<(), String>),
 }
 
 impl From<ComponentAction> for Message {
     fn from(action: ComponentAction) -> Self {
         Message::ComponentAction(action)
+    }
+}
+
+/// Test database connection for adapter-specific forms
+async fn test_connection_from_form(config: ConnectionConfig, password: Option<String>) -> Result<(), String> {
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    let result = timeout(
+        Duration::from_secs(10),
+        test_database_connection(config, password),
+    )
+    .await;
+
+    match result {
+        Ok(Ok(success)) => {
+            if success {
+                Ok(())
+            } else {
+                Err("Connection failed: Unable to connect to database".to_string())
+            }
+        }
+        Ok(Err(e)) => Err(format!("Connection error: {}", e)),
+        Err(_) => Err("Connection timeout: Failed to connect within 10 seconds".to_string()),
     }
 }
 
@@ -397,8 +478,9 @@ impl DatabaseIDE {
                 Task::none()
             }
             Message::NewConnection => {
-                self.showing_connection_form = true;
-                self.connection_form_data = ConnectionFormData::new();
+                // Show adapter selector instead of going directly to form
+                self.showing_adapter_selector = true;
+                self.selected_adapter = None;
                 Task::none()
             }
             Message::ConnectionForm(form_message) => {
@@ -654,6 +736,659 @@ impl DatabaseIDE {
                     }
                 }
             }
+            // Adapter selector messages
+            Message::AdapterSelector(selector_message) => {
+                match selector_message {
+                    AdapterSelectorMessage::AdapterSelected(db_type) => {
+                        self.selected_adapter = Some(db_type);
+                        Task::none()
+                    }
+                    AdapterSelectorMessage::Continue => {
+                        // Hide adapter selector and show the appropriate form
+                        self.showing_adapter_selector = false;
+                        if let Some(adapter) = self.selected_adapter {
+                            self.showing_connection_form = true;
+                            match adapter {
+                                DatabaseType::Postgres => {
+                                    self.postgres_form_data = PostgresConnectionFormData::new();
+                                    self.postgres_test_result = None;
+                                }
+                                DatabaseType::MySQL => {
+                                    self.mysql_form_data = MySQLConnectionFormData::new();
+                                    self.mysql_test_result = None;
+                                }
+                                DatabaseType::SQLite => {
+                                    self.sqlite_form_data = SQLiteConnectionFormData::new();
+                                    self.sqlite_test_result = None;
+                                }
+                                DatabaseType::MongoDB => {
+                                    self.mongodb_form_data = MongoDBConnectionFormData::new();
+                                    self.mongodb_test_result = None;
+                                }
+                                DatabaseType::SQLServer => {
+                                    self.sqlserver_form_data = SQLServerConnectionFormData::new();
+                                    self.sqlserver_test_result = None;
+                                }
+                                DatabaseType::Oracle => {
+                                    self.oracle_form_data = OracleConnectionFormData::new();
+                                    self.oracle_test_result = None;
+                                }
+                            }
+                        }
+                        Task::none()
+                    }
+                    AdapterSelectorMessage::Cancel => {
+                        self.showing_adapter_selector = false;
+                        self.selected_adapter = None;
+                        Task::none()
+                    }
+                }
+            }
+            // PostgreSQL form messages
+            Message::PostgresForm(form_message) => {
+                match form_message {
+                    PostgresConnectionFormMessage::Cancel => {
+                        self.showing_connection_form = false;
+                        self.selected_adapter = None;
+                        Task::none()
+                    }
+                    PostgresConnectionFormMessage::NameChanged(name) => {
+                        self.postgres_form_data.name = name;
+                        self.postgres_test_result = None;
+                        Task::none()
+                    }
+                    PostgresConnectionFormMessage::HostChanged(host) => {
+                        self.postgres_form_data.host = host;
+                        self.postgres_test_result = None;
+                        Task::none()
+                    }
+                    PostgresConnectionFormMessage::PortChanged(port) => {
+                        self.postgres_form_data.port = port;
+                        self.postgres_test_result = None;
+                        Task::none()
+                    }
+                    PostgresConnectionFormMessage::DatabaseChanged(database) => {
+                        self.postgres_form_data.database = database;
+                        self.postgres_test_result = None;
+                        Task::none()
+                    }
+                    PostgresConnectionFormMessage::UsernameChanged(username) => {
+                        self.postgres_form_data.username = username;
+                        self.postgres_test_result = None;
+                        Task::none()
+                    }
+                    PostgresConnectionFormMessage::PasswordChanged(password) => {
+                        self.postgres_form_data.password = password;
+                        self.postgres_test_result = None;
+                        Task::none()
+                    }
+                    PostgresConnectionFormMessage::TestConnection => {
+                        self.postgres_testing = true;
+                        self.postgres_test_result = None;
+                        let config = ConnectionConfig {
+                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            name: self.postgres_form_data.name.clone(),
+                            db_type: DatabaseType::Postgres,
+                            host: Some(self.postgres_form_data.host.clone()),
+                            port: self.postgres_form_data.port.parse().ok(),
+                            database: self.postgres_form_data.database.clone(),
+                            username: Some(self.postgres_form_data.username.clone()),
+                            use_ssl: false,
+                            parameters: HashMap::new(),
+                        };
+                        let password = if self.postgres_form_data.password.is_empty() {
+                            None
+                        } else {
+                            Some(self.postgres_form_data.password.clone())
+                        };
+                        Task::perform(
+                            test_connection_from_form(config, password),
+                            Message::PostgresTestResult
+                        )
+                    }
+                    PostgresConnectionFormMessage::Save => {
+                        // Validate form
+                        if let Err(e) = self.postgres_form_data.validate() {
+                            self.postgres_test_result = Some(Err(e));
+                            return Task::none();
+                        }
+
+                        // Create connection config
+                        let config = ConnectionConfig {
+                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            name: self.postgres_form_data.name.clone(),
+                            db_type: DatabaseType::Postgres,
+                            host: Some(self.postgres_form_data.host.clone()),
+                            port: self.postgres_form_data.port.parse().ok(),
+                            database: self.postgres_form_data.database.clone(),
+                            username: Some(self.postgres_form_data.username.clone()),
+                            use_ssl: false,
+                            parameters: HashMap::new(),
+                        };
+
+                        // Save to settings
+                        self.settings_manager.settings_mut().connections.push(config.clone());
+                        if let Err(e) = self.settings_manager.save() {
+                            warn!("Failed to save connection: {}", e);
+                            self.postgres_test_result = Some(Err(format!("Failed to save: {}", e)));
+                            return Task::none();
+                        }
+
+                        // Update saved_connections
+                        self.saved_connections.push(config);
+
+                        // Close form
+                        self.showing_connection_form = false;
+                        self.selected_adapter = None;
+                        Task::none()
+                    }
+                }
+            }
+            Message::PostgresTestResult(result) => {
+                self.postgres_testing = false;
+                self.postgres_test_result = Some(result.map(|_| ()));
+                Task::none()
+            }
+            // MySQL form messages
+            Message::MySQLForm(form_message) => {
+                match form_message {
+                    MySQLConnectionFormMessage::Cancel => {
+                        self.showing_connection_form = false;
+                        self.selected_adapter = None;
+                        Task::none()
+                    }
+                    MySQLConnectionFormMessage::NameChanged(name) => {
+                        self.mysql_form_data.name = name;
+                        self.mysql_test_result = None;
+                        Task::none()
+                    }
+                    MySQLConnectionFormMessage::HostChanged(host) => {
+                        self.mysql_form_data.host = host;
+                        self.mysql_test_result = None;
+                        Task::none()
+                    }
+                    MySQLConnectionFormMessage::PortChanged(port) => {
+                        self.mysql_form_data.port = port;
+                        self.mysql_test_result = None;
+                        Task::none()
+                    }
+                    MySQLConnectionFormMessage::DatabaseChanged(database) => {
+                        self.mysql_form_data.database = database;
+                        self.mysql_test_result = None;
+                        Task::none()
+                    }
+                    MySQLConnectionFormMessage::UsernameChanged(username) => {
+                        self.mysql_form_data.username = username;
+                        self.mysql_test_result = None;
+                        Task::none()
+                    }
+                    MySQLConnectionFormMessage::PasswordChanged(password) => {
+                        self.mysql_form_data.password = password;
+                        self.mysql_test_result = None;
+                        Task::none()
+                    }
+                    MySQLConnectionFormMessage::TestConnection => {
+                        self.mysql_testing = true;
+                        self.mysql_test_result = None;
+                        let config = ConnectionConfig {
+                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            name: self.mysql_form_data.name.clone(),
+                            db_type: DatabaseType::MySQL,
+                            host: Some(self.mysql_form_data.host.clone()),
+                            port: self.mysql_form_data.port.parse().ok(),
+                            database: self.mysql_form_data.database.clone(),
+                            username: Some(self.mysql_form_data.username.clone()),
+                            use_ssl: false,
+                            parameters: HashMap::new(),
+                        };
+                        let password = if self.mysql_form_data.password.is_empty() {
+                            None
+                        } else {
+                            Some(self.mysql_form_data.password.clone())
+                        };
+                        Task::perform(
+                            test_connection_from_form(config, password),
+                            Message::MySQLTestResult
+                        )
+                    }
+                    MySQLConnectionFormMessage::Save => {
+                        // Validate form
+                        if let Err(e) = self.mysql_form_data.validate() {
+                            self.mysql_test_result = Some(Err(e));
+                            return Task::none();
+                        }
+
+                        // Create connection config
+                        let config = ConnectionConfig {
+                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            name: self.mysql_form_data.name.clone(),
+                            db_type: DatabaseType::MySQL,
+                            host: Some(self.mysql_form_data.host.clone()),
+                            port: self.mysql_form_data.port.parse().ok(),
+                            database: self.mysql_form_data.database.clone(),
+                            username: Some(self.mysql_form_data.username.clone()),
+                            use_ssl: false,
+                            parameters: HashMap::new(),
+                        };
+
+                        // Save to settings
+                        self.settings_manager.settings_mut().connections.push(config.clone());
+                        if let Err(e) = self.settings_manager.save() {
+                            warn!("Failed to save connection: {}", e);
+                            self.mysql_test_result = Some(Err(format!("Failed to save: {}", e)));
+                            return Task::none();
+                        }
+
+                        // Update saved_connections
+                        self.saved_connections.push(config);
+
+                        // Close form
+                        self.showing_connection_form = false;
+                        self.selected_adapter = None;
+                        Task::none()
+                    }
+                }
+            }
+            Message::MySQLTestResult(result) => {
+                self.mysql_testing = false;
+                self.mysql_test_result = Some(result.map(|_| ()));
+                Task::none()
+            }
+            // SQLite form messages
+            Message::SQLiteForm(form_message) => {
+                match form_message {
+                    SQLiteConnectionFormMessage::Cancel => {
+                        self.showing_connection_form = false;
+                        self.selected_adapter = None;
+                        Task::none()
+                    }
+                    SQLiteConnectionFormMessage::NameChanged(name) => {
+                        self.sqlite_form_data.name = name;
+                        self.sqlite_test_result = None;
+                        Task::none()
+                    }
+                    SQLiteConnectionFormMessage::FilePathChanged(path) => {
+                        self.sqlite_form_data.file_path = path;
+                        self.sqlite_test_result = None;
+                        Task::none()
+                    }
+                    SQLiteConnectionFormMessage::TestConnection => {
+                        self.sqlite_testing = true;
+                        self.sqlite_test_result = None;
+                        let config = ConnectionConfig {
+                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            name: self.sqlite_form_data.name.clone(),
+                            db_type: DatabaseType::SQLite,
+                            host: None,
+                            port: None,
+                            database: self.sqlite_form_data.file_path.clone(),
+                            username: None,
+                            use_ssl: false,
+                            parameters: HashMap::new(),
+                        };
+                        Task::perform(
+                            test_connection_from_form(config, None),
+                            Message::SQLiteTestResult
+                        )
+                    }
+                    SQLiteConnectionFormMessage::Save => {
+                        // Validate form
+                        if let Err(e) = self.sqlite_form_data.validate() {
+                            self.sqlite_test_result = Some(Err(e));
+                            return Task::none();
+                        }
+
+                        // Create connection config
+                        let config = ConnectionConfig {
+                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            name: self.sqlite_form_data.name.clone(),
+                            db_type: DatabaseType::SQLite,
+                            host: None,
+                            port: None,
+                            database: self.sqlite_form_data.file_path.clone(),
+                            username: None,
+                            use_ssl: false,
+                            parameters: HashMap::new(),
+                        };
+
+                        // Save to settings
+                        self.settings_manager.settings_mut().connections.push(config.clone());
+                        if let Err(e) = self.settings_manager.save() {
+                            warn!("Failed to save connection: {}", e);
+                            self.sqlite_test_result = Some(Err(format!("Failed to save: {}", e)));
+                            return Task::none();
+                        }
+
+                        // Update saved_connections
+                        self.saved_connections.push(config);
+
+                        // Close form
+                        self.showing_connection_form = false;
+                        self.selected_adapter = None;
+                        Task::none()
+                    }
+                }
+            }
+            Message::SQLiteTestResult(result) => {
+                self.sqlite_testing = false;
+                self.sqlite_test_result = Some(result.map(|_| ()));
+                Task::none()
+            }
+            // MongoDB form messages
+            Message::MongoDBForm(form_message) => {
+                match form_message {
+                    MongoDBConnectionFormMessage::Cancel => {
+                        self.showing_connection_form = false;
+                        self.selected_adapter = None;
+                        Task::none()
+                    }
+                    MongoDBConnectionFormMessage::NameChanged(name) => {
+                        self.mongodb_form_data.name = name;
+                        self.mongodb_test_result = None;
+                        Task::none()
+                    }
+                    MongoDBConnectionFormMessage::HostChanged(host) => {
+                        self.mongodb_form_data.host = host;
+                        self.mongodb_test_result = None;
+                        Task::none()
+                    }
+                    MongoDBConnectionFormMessage::PortChanged(port) => {
+                        self.mongodb_form_data.port = port;
+                        self.mongodb_test_result = None;
+                        Task::none()
+                    }
+                    MongoDBConnectionFormMessage::DatabaseChanged(database) => {
+                        self.mongodb_form_data.database = database;
+                        self.mongodb_test_result = None;
+                        Task::none()
+                    }
+                    MongoDBConnectionFormMessage::UsernameChanged(username) => {
+                        self.mongodb_form_data.username = username;
+                        self.mongodb_test_result = None;
+                        Task::none()
+                    }
+                    MongoDBConnectionFormMessage::PasswordChanged(password) => {
+                        self.mongodb_form_data.password = password;
+                        self.mongodb_test_result = None;
+                        Task::none()
+                    }
+                    MongoDBConnectionFormMessage::TestConnection => {
+                        self.mongodb_testing = true;
+                        self.mongodb_test_result = None;
+                        let config = ConnectionConfig {
+                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            name: self.mongodb_form_data.name.clone(),
+                            db_type: DatabaseType::MongoDB,
+                            host: Some(self.mongodb_form_data.host.clone()),
+                            port: self.mongodb_form_data.port.parse().ok(),
+                            database: self.mongodb_form_data.database.clone(),
+                            username: Some(self.mongodb_form_data.username.clone()),
+                            use_ssl: false,
+                            parameters: HashMap::new(),
+                        };
+                        let password = if self.mongodb_form_data.password.is_empty() {
+                            None
+                        } else {
+                            Some(self.mongodb_form_data.password.clone())
+                        };
+                        Task::perform(
+                            test_connection_from_form(config, password),
+                            Message::MongoDBTestResult
+                        )
+                    }
+                    MongoDBConnectionFormMessage::Save => {
+                        // Validate form
+                        if let Err(e) = self.mongodb_form_data.validate() {
+                            self.mongodb_test_result = Some(Err(e));
+                            return Task::none();
+                        }
+
+                        // Create connection config
+                        let config = ConnectionConfig {
+                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            name: self.mongodb_form_data.name.clone(),
+                            db_type: DatabaseType::MongoDB,
+                            host: Some(self.mongodb_form_data.host.clone()),
+                            port: self.mongodb_form_data.port.parse().ok(),
+                            database: self.mongodb_form_data.database.clone(),
+                            username: Some(self.mongodb_form_data.username.clone()),
+                            use_ssl: false,
+                            parameters: HashMap::new(),
+                        };
+
+                        // Save to settings
+                        self.settings_manager.settings_mut().connections.push(config.clone());
+                        if let Err(e) = self.settings_manager.save() {
+                            warn!("Failed to save connection: {}", e);
+                            self.mongodb_test_result = Some(Err(format!("Failed to save: {}", e)));
+                            return Task::none();
+                        }
+
+                        // Update saved_connections
+                        self.saved_connections.push(config);
+
+                        // Close form
+                        self.showing_connection_form = false;
+                        self.selected_adapter = None;
+                        Task::none()
+                    }
+                }
+            }
+            Message::MongoDBTestResult(result) => {
+                self.mongodb_testing = false;
+                self.mongodb_test_result = Some(result.map(|_| ()));
+                Task::none()
+            }
+            // SQL Server form messages
+            Message::SQLServerForm(form_message) => {
+                match form_message {
+                    SQLServerConnectionFormMessage::Cancel => {
+                        self.showing_connection_form = false;
+                        self.selected_adapter = None;
+                        Task::none()
+                    }
+                    SQLServerConnectionFormMessage::NameChanged(name) => {
+                        self.sqlserver_form_data.name = name;
+                        self.sqlserver_test_result = None;
+                        Task::none()
+                    }
+                    SQLServerConnectionFormMessage::HostChanged(host) => {
+                        self.sqlserver_form_data.host = host;
+                        self.sqlserver_test_result = None;
+                        Task::none()
+                    }
+                    SQLServerConnectionFormMessage::PortChanged(port) => {
+                        self.sqlserver_form_data.port = port;
+                        self.sqlserver_test_result = None;
+                        Task::none()
+                    }
+                    SQLServerConnectionFormMessage::DatabaseChanged(database) => {
+                        self.sqlserver_form_data.database = database;
+                        self.sqlserver_test_result = None;
+                        Task::none()
+                    }
+                    SQLServerConnectionFormMessage::UsernameChanged(username) => {
+                        self.sqlserver_form_data.username = username;
+                        self.sqlserver_test_result = None;
+                        Task::none()
+                    }
+                    SQLServerConnectionFormMessage::PasswordChanged(password) => {
+                        self.sqlserver_form_data.password = password;
+                        self.sqlserver_test_result = None;
+                        Task::none()
+                    }
+                    SQLServerConnectionFormMessage::TestConnection => {
+                        self.sqlserver_testing = true;
+                        self.sqlserver_test_result = None;
+                        let config = ConnectionConfig {
+                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            name: self.sqlserver_form_data.name.clone(),
+                            db_type: DatabaseType::SQLServer,
+                            host: Some(self.sqlserver_form_data.host.clone()),
+                            port: self.sqlserver_form_data.port.parse().ok(),
+                            database: self.sqlserver_form_data.database.clone(),
+                            username: Some(self.sqlserver_form_data.username.clone()),
+                            use_ssl: false,
+                            parameters: HashMap::new(),
+                        };
+                        let password = if self.sqlserver_form_data.password.is_empty() {
+                            None
+                        } else {
+                            Some(self.sqlserver_form_data.password.clone())
+                        };
+                        Task::perform(
+                            test_connection_from_form(config, password),
+                            Message::SQLServerTestResult
+                        )
+                    }
+                    SQLServerConnectionFormMessage::Save => {
+                        // Validate form
+                        if let Err(e) = self.sqlserver_form_data.validate() {
+                            self.sqlserver_test_result = Some(Err(e));
+                            return Task::none();
+                        }
+
+                        // Create connection config
+                        let config = ConnectionConfig {
+                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            name: self.sqlserver_form_data.name.clone(),
+                            db_type: DatabaseType::SQLServer,
+                            host: Some(self.sqlserver_form_data.host.clone()),
+                            port: self.sqlserver_form_data.port.parse().ok(),
+                            database: self.sqlserver_form_data.database.clone(),
+                            username: Some(self.sqlserver_form_data.username.clone()),
+                            use_ssl: false,
+                            parameters: HashMap::new(),
+                        };
+
+                        // Save to settings
+                        self.settings_manager.settings_mut().connections.push(config.clone());
+                        if let Err(e) = self.settings_manager.save() {
+                            warn!("Failed to save connection: {}", e);
+                            self.sqlserver_test_result = Some(Err(format!("Failed to save: {}", e)));
+                            return Task::none();
+                        }
+
+                        // Update saved_connections
+                        self.saved_connections.push(config);
+
+                        // Close form
+                        self.showing_connection_form = false;
+                        self.selected_adapter = None;
+                        Task::none()
+                    }
+                }
+            }
+            Message::SQLServerTestResult(result) => {
+                self.sqlserver_testing = false;
+                self.sqlserver_test_result = Some(result.map(|_| ()));
+                Task::none()
+            }
+            // Oracle form messages
+            Message::OracleForm(form_message) => {
+                match form_message {
+                    OracleConnectionFormMessage::Cancel => {
+                        self.showing_connection_form = false;
+                        self.selected_adapter = None;
+                        Task::none()
+                    }
+                    OracleConnectionFormMessage::NameChanged(name) => {
+                        self.oracle_form_data.name = name;
+                        self.oracle_test_result = None;
+                        Task::none()
+                    }
+                    OracleConnectionFormMessage::HostChanged(host) => {
+                        self.oracle_form_data.host = host;
+                        self.oracle_test_result = None;
+                        Task::none()
+                    }
+                    OracleConnectionFormMessage::PortChanged(port) => {
+                        self.oracle_form_data.port = port;
+                        self.oracle_test_result = None;
+                        Task::none()
+                    }
+                    OracleConnectionFormMessage::DatabaseChanged(database) => {
+                        self.oracle_form_data.database = database;
+                        self.oracle_test_result = None;
+                        Task::none()
+                    }
+                    OracleConnectionFormMessage::UsernameChanged(username) => {
+                        self.oracle_form_data.username = username;
+                        self.oracle_test_result = None;
+                        Task::none()
+                    }
+                    OracleConnectionFormMessage::PasswordChanged(password) => {
+                        self.oracle_form_data.password = password;
+                        self.oracle_test_result = None;
+                        Task::none()
+                    }
+                    OracleConnectionFormMessage::TestConnection => {
+                        self.oracle_testing = true;
+                        self.oracle_test_result = None;
+                        let config = ConnectionConfig {
+                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            name: self.oracle_form_data.name.clone(),
+                            db_type: DatabaseType::Oracle,
+                            host: Some(self.oracle_form_data.host.clone()),
+                            port: self.oracle_form_data.port.parse().ok(),
+                            database: self.oracle_form_data.database.clone(),
+                            username: Some(self.oracle_form_data.username.clone()),
+                            use_ssl: false,
+                            parameters: HashMap::new(),
+                        };
+                        let password = if self.oracle_form_data.password.is_empty() {
+                            None
+                        } else {
+                            Some(self.oracle_form_data.password.clone())
+                        };
+                        Task::perform(
+                            test_connection_from_form(config, password),
+                            Message::OracleTestResult
+                        )
+                    }
+                    OracleConnectionFormMessage::Save => {
+                        // Validate form
+                        if let Err(e) = self.oracle_form_data.validate() {
+                            self.oracle_test_result = Some(Err(e));
+                            return Task::none();
+                        }
+
+                        // Create connection config
+                        let config = ConnectionConfig {
+                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            name: self.oracle_form_data.name.clone(),
+                            db_type: DatabaseType::Oracle,
+                            host: Some(self.oracle_form_data.host.clone()),
+                            port: self.oracle_form_data.port.parse().ok(),
+                            database: self.oracle_form_data.database.clone(),
+                            username: Some(self.oracle_form_data.username.clone()),
+                            use_ssl: false,
+                            parameters: HashMap::new(),
+                        };
+
+                        // Save to settings
+                        self.settings_manager.settings_mut().connections.push(config.clone());
+                        if let Err(e) = self.settings_manager.save() {
+                            warn!("Failed to save connection: {}", e);
+                            self.oracle_test_result = Some(Err(format!("Failed to save: {}", e)));
+                            return Task::none();
+                        }
+
+                        // Update saved_connections
+                        self.saved_connections.push(config);
+
+                        // Close form
+                        self.showing_connection_form = false;
+                        self.selected_adapter = None;
+                        Task::none()
+                    }
+                }
+            }
+            Message::OracleTestResult(result) => {
+                self.oracle_testing = false;
+                self.oracle_test_result = Some(result.map(|_| ()));
+                Task::none()
+            }
         }
     }
 
@@ -803,11 +1538,70 @@ impl DatabaseIDE {
                 &self.settings_success_message,
                 Message::SettingsEditor,
             )
-        } else if self.showing_connection_form {
-            self.connection_form.view(
-                &self.connection_form_data,
-                Message::ConnectionForm,
+        } else if self.showing_adapter_selector {
+            self.adapter_selector.view(
+                &self.selected_adapter,
+                Message::AdapterSelector,
             )
+        } else if self.showing_connection_form {
+            // Show the appropriate adapter-specific form
+            match self.selected_adapter {
+                Some(DatabaseType::Postgres) => {
+                    self.postgres_form.view(
+                        &self.postgres_form_data,
+                        self.postgres_testing,
+                        &self.postgres_test_result,
+                        Message::PostgresForm,
+                    )
+                }
+                Some(DatabaseType::MySQL) => {
+                    self.mysql_form.view(
+                        &self.mysql_form_data,
+                        self.mysql_testing,
+                        &self.mysql_test_result,
+                        Message::MySQLForm,
+                    )
+                }
+                Some(DatabaseType::SQLite) => {
+                    self.sqlite_form.view(
+                        &self.sqlite_form_data,
+                        self.sqlite_testing,
+                        &self.sqlite_test_result,
+                        Message::SQLiteForm,
+                    )
+                }
+                Some(DatabaseType::MongoDB) => {
+                    self.mongodb_form.view(
+                        &self.mongodb_form_data,
+                        self.mongodb_testing,
+                        &self.mongodb_test_result,
+                        Message::MongoDBForm,
+                    )
+                }
+                Some(DatabaseType::SQLServer) => {
+                    self.sqlserver_form.view(
+                        &self.sqlserver_form_data,
+                        self.sqlserver_testing,
+                        &self.sqlserver_test_result,
+                        Message::SQLServerForm,
+                    )
+                }
+                Some(DatabaseType::Oracle) => {
+                    self.oracle_form.view(
+                        &self.oracle_form_data,
+                        self.oracle_testing,
+                        &self.oracle_test_result,
+                        Message::OracleForm,
+                    )
+                }
+                None => {
+                    // Fallback to old connection form if adapter not selected
+                    self.connection_form.view(
+                        &self.connection_form_data,
+                        Message::ConnectionForm,
+                    )
+                }
+            }
         } else {
             self.main_panel.view(
                 Message::NewMainTab,
