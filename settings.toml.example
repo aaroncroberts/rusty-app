@@ -1,0 +1,185 @@
+# rusty-app Settings Configuration
+# Copy this file to ~/.rusty-app/settings.toml and customize as needed.
+
+# =============================================================================
+# LOGGING CONFIGURATION
+# =============================================================================
+# Integrates with rusty-logging crate for application-wide logging.
+
+[logging]
+# Global filter level (applies to both console and file unless overridden)
+# Options: "trace", "debug", "info", "warn", "error"
+# Can also target specific modules: "rusty_app=debug,rusty_data=info"
+filter = "info"
+
+# --- Console Logging ---
+# Override console-specific filter (optional)
+# If not set, uses the global 'filter' setting
+# console_filter = "debug"
+
+# Console output format
+# Options: "pretty" (colorized, development) | "compact" (production)
+console_format = "compact"
+
+# Console output stream
+# Options: "stdout" | "stderr"
+console_writer = "stderr"
+
+# Enable/disable console logging
+console_enabled = true
+
+# --- File Logging ---
+# Override file-specific filter (optional)
+# If not set, uses the global 'filter' setting
+# file_filter = "debug"
+
+# Enable/disable file logging
+file_enabled = true
+
+# File output format
+# Options: "text" (human-readable .log) | "json" (JSON Lines .jsonl)
+file_format = "text"
+
+# Directory for log files (relative to user home or absolute path)
+# Will be created if it doesn't exist
+file_directory = "~/.rusty-app/logs"
+
+# Prefix for log file names
+# Files will be named: <prefix>_YYYY-MM-DD.log (or .jsonl for JSON format)
+file_prefix = "rusty-app"
+
+# File rotation policy
+# Options: "daily" | "hourly" | "minutely" | "never"
+rotation_policy = "daily"
+
+
+# =============================================================================
+# DATABASE CONNECTIONS
+# =============================================================================
+# Array of database connections. Each connection requires:
+# - id: Unique identifier (alphanumeric, dashes, underscores)
+# - name: Display name shown in UI
+# - db_type: Database type (postgres, mysql, sqlite, mongodb, sqlserver, oracle)
+# - database: Database name or file path (for SQLite)
+#
+# Optional fields:
+# - host: Server hostname (not used for SQLite)
+# - port: Server port (uses default if omitted)
+# - username: Authentication username
+# - use_ssl: Enable SSL/TLS (default: false)
+# - parameters: Additional connection parameters as key-value pairs
+
+[[connections]]
+id = "local-postgres"
+name = "Local PostgreSQL (Container)"
+db_type = "postgres"
+host = "localhost"
+port = 5432
+database = "test_db"
+username = "test_user"
+use_ssl = false
+
+[[connections]]
+id = "production-db"
+name = "Production Database"
+db_type = "postgres"
+host = "db.example.com"
+port = 5432
+database = "prod_db"
+username = "app_user"
+use_ssl = true
+
+# SQLite example (file-based database)
+# [[connections]]
+# id = "local-sqlite"
+# name = "Local SQLite Database"
+# db_type = "sqlite"
+# database = "/path/to/database.db"
+# # host, port, username not used for SQLite
+# use_ssl = false
+
+# MySQL example
+# [[connections]]
+# id = "local-mysql"
+# name = "Local MySQL (Container)"
+# db_type = "mysql"
+# host = "localhost"
+# port = 3306
+# database = "test_db"
+# username = "test_user"
+# use_ssl = false
+
+# MongoDB example
+# [[connections]]
+# id = "local-mongodb"
+# name = "Local MongoDB (Container)"
+# db_type = "mongodb"
+# host = "localhost"
+# port = 27017
+# database = "test_db"
+# username = "test_user"
+# use_ssl = false
+
+# SQL Server example
+# [[connections]]
+# id = "local-mssql"
+# name = "Local SQL Server (Container)"
+# db_type = "sqlserver"
+# host = "localhost"
+# port = 1433
+# database = "master"
+# username = "sa"
+# use_ssl = false
+
+# Oracle example
+# [[connections]]
+# id = "local-oracle"
+# name = "Local Oracle (Container)"
+# db_type = "oracle"
+# host = "localhost"
+# port = 1521
+# database = "XE"  # SID for Oracle
+# username = "test_user"
+# use_ssl = false
+
+# Example with additional connection parameters
+# [[connections]]
+# id = "advanced-postgres"
+# name = "PostgreSQL with Parameters"
+# db_type = "postgres"
+# host = "localhost"
+# port = 5432
+# database = "mydb"
+# username = "myuser"
+# use_ssl = true
+#
+# [connections.parameters]
+# sslmode = "require"
+# connect_timeout = "10"
+# application_name = "rusty-app"
+
+
+# =============================================================================
+# UI PREFERENCES
+# =============================================================================
+# User interface settings and preferences
+
+[ui_preferences]
+# UI theme
+# Options: "dark" | "light" (future: custom themes)
+theme = "dark"
+
+# Left panel width in pixels
+# Range: 200-600
+panel_width = 250
+
+# Show left panel on startup
+show_left_panel = true
+
+# Active component on startup
+# Options: "server_list" | "table_list" | "properties"
+active_component = "server_list"
+
+# Window dimensions (width, height in pixels)
+window_width = 1280
+window_height = 800
