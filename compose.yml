@@ -47,7 +47,7 @@ services:
   # Microsoft SQL Server - Port 1433
   mssql:
     image: mcr.microsoft.com/azure-sql-edge:latest
-    container_name: rusty-test-mssql
+    container_name: icitadel-dev-mssql
     environment:
       ACCEPT_EULA: "1"
       MSSQL_SA_PASSWORD: "Test_Password123!"
@@ -66,7 +66,7 @@ services:
   # Using Oracle Database 23ai Free (ARM64 compatible)
   oracle:
     image: container-registry.oracle.com/database/free:latest
-    container_name: rusty-test-oracle
+    container_name: icitadel-dev-oracle
     environment:
       ORACLE_PWD: "TestPassword123"
       ORACLE_CHARACTERSET: "AL32UTF8"
@@ -88,7 +88,7 @@ services:
   # MongoDB - Port 27017
   mongodb:
     image: docker.io/library/mongo:7
-    container_name: rusty-test-mongodb
+    container_name: icitadel-dev-mongodb
     environment:
       MONGO_INITDB_ROOT_USERNAME: test_user
       MONGO_INITDB_ROOT_PASSWORD: test_password
