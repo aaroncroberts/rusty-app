@@ -8,6 +8,12 @@
 use iced::Element;
 use crate::theme::ThemeColors;
 
+pub mod connection_form;
+pub mod server_list;
+
+pub use connection_form::{ConnectionFormComponent, ConnectionFormData};
+pub use server_list::ServerListComponent;
+
 /// Unique identifier for each component type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ComponentId {
@@ -87,11 +93,13 @@ pub enum EditorAction {
 #[derive(Debug, Clone)]
 pub enum ConnectionFormAction {
     NameChanged(String),
+    DbTypeChanged(rusty_data::adapter::DatabaseType),
     HostChanged(String),
     PortChanged(String),
     DatabaseChanged(String),
     UsernameChanged(String),
     PasswordChanged(String),
+    FilePathChanged(String),
     TestConnection,
     Save,
     Cancel,
