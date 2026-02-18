@@ -881,6 +881,270 @@ impl DatabaseAdapter for SqliteAdapter {
         // Return empty list
         Ok(Vec::new())
     }
+
+    #[instrument(skip(self, rows), fields(table = %table_name, row_count = rows.len(), column_count = columns.len()))]
+    async fn bulk_insert(
+        &self,
+        table_name: &str,
+        columns: &[String],
+        rows: &[Vec<QueryValue>],
+        _schema: Option<&str>,
+    ) -> Result<u64> {
+        Self::validate_table_name(table_name)?;
+
+        if columns.is_empty() {
+            return Err(DataError::Config("Column list cannot be empty".to_string()));
+        }
+
+        if rows.is_empty() {
+            return Ok(0);
+        }
+
+        info!("Bulk inserting {} rows into {}", rows.len(), table_name);
+
+        let pool = self
+            .pool
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+
+        // Validate all rows have the same column count
+        for (idx, row) in rows.iter().enumerate() {
+            if row.len() != columns.len() {
+                return Err(DataError::Config(format!(
+                    "Row {} has {} values but expected {} columns",
+                    idx,
+                    row.len(),
+                    columns.len()
+                )));
+            }
+        }
+
+        let start = std::time::Instant::now();
+
+        // Use SQLite multi-row INSERT syntax within a transaction for best performance
+        // SQLite INSERT syntax: INSERT INTO table (cols) VALUES (?,...), (?,...), ...
+        let column_list = columns.join(", ");
+
+        // Build value placeholders
+        let row_placeholder = format!("({})", vec!["?"; columns.len()].join(", "));
+        let placeholders = vec![row_placeholder; rows.len()].join(", ");
+
+        // Build the full INSERT query
+        let query = format!(
+            "INSERT INTO {} ({}) VALUES {}",
+            table_name, column_list, placeholders
+        );
+
+        debug!("Bulk insert query: {}", query);
+
+        // Wrap in transaction for performance
+        let mut tx = pool.begin().await.map_err(|e| {
+            DataError::Query(format!("Failed to begin transaction: {}", e))
+        })?;
+
+        // Build and bind all parameters
+        let mut query_builder = sqlx::query(&query);
+
+        for row in rows {
+            for value in row {
+                query_builder = match value {
+                    QueryValue::Null => query_builder.bind(None::<String>),
+                    QueryValue::Int(v) => query_builder.bind(*v),
+                    QueryValue::Float(v) => query_builder.bind(*v),
+                    QueryValue::Text(v) => query_builder.bind(v),
+                    QueryValue::Bool(v) => query_builder.bind(*v as i64),
+                    QueryValue::Bytes(v) => query_builder.bind(v),
+                };
+            }
+        }
+
+        // Execute the query
+        let result = query_builder
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                DataError::Query(format!("Failed to bulk insert into {}: {}", table_name, e))
+            })?;
+
+        let rows_affected = result.rows_affected();
+
+        // Commit transaction
+        tx.commit().await.map_err(|e| {
+            DataError::Query(format!("Failed to commit transaction: {}", e))
+        })?;
+
+        let elapsed = start.elapsed();
+
+        info!(
+            "Bulk insert completed: {} rows into {} in {}ms",
+            rows_affected,
+            table_name,
+            elapsed.as_millis()
+        );
+
+        Ok(rows_affected)
+    }
+
+    #[instrument(skip(self, updates), fields(table = %table_name, update_count = updates.len()))]
+    async fn bulk_update(
+        &self,
+        table_name: &str,
+        updates: &[(std::collections::HashMap<String, QueryValue>, String)],
+        _schema: Option<&str>,
+    ) -> Result<u64> {
+        Self::validate_table_name(table_name)?;
+
+        if updates.is_empty() {
+            return Ok(0);
+        }
+
+        info!("Bulk updating {} rows in {}", updates.len(), table_name);
+
+        let pool = self
+            .pool
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+
+        let start = std::time::Instant::now();
+
+        // Wrap in transaction for performance
+        let mut tx = pool.begin().await.map_err(|e| {
+            DataError::Query(format!("Failed to begin transaction: {}", e))
+        })?;
+
+        let mut total_affected = 0u64;
+
+        // Execute each update in the transaction
+        for (set_clauses, where_clause) in updates {
+            if set_clauses.is_empty() {
+                continue;
+            }
+
+            // Build SET clause with placeholders
+            let set_parts: Vec<String> = set_clauses
+                .keys()
+                .map(|column| format!("{} = ?", column))
+                .collect();
+
+            let query = format!(
+                "UPDATE {} SET {} WHERE {}",
+                table_name,
+                set_parts.join(", "),
+                where_clause
+            );
+
+            debug!("Bulk update query: {}", query);
+
+            // Bind parameters
+            let mut query_builder = sqlx::query(&query);
+
+            for value in set_clauses.values() {
+                query_builder = match value {
+                    QueryValue::Null => query_builder.bind(None::<String>),
+                    QueryValue::Int(v) => query_builder.bind(*v),
+                    QueryValue::Float(v) => query_builder.bind(*v),
+                    QueryValue::Text(v) => query_builder.bind(v),
+                    QueryValue::Bool(v) => query_builder.bind(*v as i64),
+                    QueryValue::Bytes(v) => query_builder.bind(v),
+                };
+            }
+
+            let result = query_builder
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    DataError::Query(format!("Failed to bulk update {}: {}", table_name, e))
+                })?;
+
+            total_affected += result.rows_affected();
+        }
+
+        // Commit transaction
+        tx.commit().await.map_err(|e| {
+            DataError::Query(format!("Failed to commit transaction: {}", e))
+        })?;
+
+        let elapsed = start.elapsed();
+
+        info!(
+            "Bulk update completed: {} rows in {} in {}ms",
+            total_affected,
+            table_name,
+            elapsed.as_millis()
+        );
+
+        Ok(total_affected)
+    }
+
+    #[instrument(skip(self, where_clauses), fields(table = %table_name, delete_count = where_clauses.len()))]
+    async fn bulk_delete(
+        &self,
+        table_name: &str,
+        where_clauses: &[String],
+        _schema: Option<&str>,
+    ) -> Result<u64> {
+        Self::validate_table_name(table_name)?;
+
+        if where_clauses.is_empty() {
+            return Ok(0);
+        }
+
+        info!(
+            "Bulk deleting {} rows from {}",
+            where_clauses.len(),
+            table_name
+        );
+
+        let pool = self
+            .pool
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+
+        let start = std::time::Instant::now();
+
+        // Wrap in transaction for performance
+        let mut tx = pool.begin().await.map_err(|e| {
+            DataError::Query(format!("Failed to begin transaction: {}", e))
+        })?;
+
+        let mut total_affected = 0u64;
+
+        // Execute each delete in the transaction
+        for where_clause in where_clauses {
+            if where_clause.trim().is_empty() {
+                continue;
+            }
+
+            let query = format!("DELETE FROM {} WHERE {}", table_name, where_clause);
+
+            debug!("Bulk delete query: {}", query);
+
+            let result = sqlx::query(&query)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    DataError::Query(format!("Failed to bulk delete from {}: {}", table_name, e))
+                })?;
+
+            total_affected += result.rows_affected();
+        }
+
+        // Commit transaction
+        tx.commit().await.map_err(|e| {
+            DataError::Query(format!("Failed to commit transaction: {}", e))
+        })?;
+
+        let elapsed = start.elapsed();
+
+        info!(
+            "Bulk delete completed: {} rows from {} in {}ms",
+            total_affected,
+            table_name,
+            elapsed.as_millis()
+        );
+
+        Ok(total_affected)
+    }
 }
 
 #[cfg(test)]
@@ -1173,5 +1437,221 @@ mod tests {
     fn test_query_value_display_bytes() {
         let bytes = vec![1, 2, 3, 4, 5];
         assert_eq!(QueryValue::Bytes(bytes).to_string(), "<5 bytes>");
+    }
+
+    // ========== Bulk Operations Tests (TDD - RED Phase) ==========
+
+    #[tokio::test]
+    async fn test_bulk_insert_not_connected() {
+        let adapter = SqliteAdapter::new();
+        let columns = vec!["id".to_string(), "name".to_string()];
+        let rows = vec![
+            vec![QueryValue::Int(1), QueryValue::Text("Alice".to_string())],
+            vec![QueryValue::Int(2), QueryValue::Text("Bob".to_string())],
+        ];
+
+        let result = adapter
+            .bulk_insert("users", &columns, &rows, None)
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Connection(_)));
+    }
+
+    #[test]
+    fn test_bulk_insert_validation_empty_columns() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let adapter = SqliteAdapter::new();
+            let columns = vec![];
+            let rows = vec![vec![QueryValue::Int(1)]];
+
+            let result = adapter.bulk_insert("users", &columns, &rows, None).await;
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+        });
+    }
+
+    #[test]
+    fn test_bulk_insert_validation_empty_rows() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let adapter = SqliteAdapter::new();
+            let columns = vec!["id".to_string()];
+            let rows = vec![];
+
+            // Empty rows should return Ok(0)
+            let result = adapter.bulk_insert("users", &columns, &rows, None).await;
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), 0);
+        });
+    }
+
+    #[test]
+    fn test_bulk_insert_validation_column_count_mismatch() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let adapter = SqliteAdapter::new();
+            let columns = vec!["id".to_string(), "name".to_string()];
+            let rows = vec![
+                vec![QueryValue::Int(1), QueryValue::Text("Alice".to_string())],
+                vec![QueryValue::Int(2)], // Wrong column count
+            ];
+
+            let result = adapter.bulk_insert("users", &columns, &rows, None).await;
+            assert!(result.is_err());
+        });
+    }
+
+    #[test]
+    fn test_bulk_insert_validation_table_name() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let adapter = SqliteAdapter::new();
+            let columns = vec!["id".to_string()];
+            let rows = vec![vec![QueryValue::Int(1)]];
+
+            // Empty table name
+            let result = adapter.bulk_insert("", &columns, &rows, None).await;
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+
+            // Table name too long (>2000 chars as per SQLite LIMIT_LENGTH default)
+            let long_name = "a".repeat(2001);
+            let result = adapter.bulk_insert(&long_name, &columns, &rows, None).await;
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+        });
+    }
+
+    #[tokio::test]
+    async fn test_bulk_update_not_connected() {
+        let adapter = SqliteAdapter::new();
+        let mut update_map = HashMap::new();
+        update_map.insert("name".to_string(), QueryValue::Text("Updated".to_string()));
+
+        let updates = vec![(update_map, "id = 1".to_string())];
+
+        let result = adapter.bulk_update("users", &updates, None).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Connection(_)));
+    }
+
+    #[test]
+    fn test_bulk_update_validation_empty_updates() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let adapter = SqliteAdapter::new();
+            let updates = vec![];
+
+            // Empty updates should return Ok(0)
+            let result = adapter.bulk_update("users", &updates, None).await;
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), 0);
+        });
+    }
+
+    #[test]
+    fn test_bulk_update_validation_table_name() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let adapter = SqliteAdapter::new();
+            let mut update_map = HashMap::new();
+            update_map.insert("name".to_string(), QueryValue::Text("Test".to_string()));
+            let updates = vec![(update_map, "id = 1".to_string())];
+
+            // Empty table name
+            let result = adapter.bulk_update("", &updates, None).await;
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+
+            // Table name too long
+            let long_name = "a".repeat(2001);
+            let result = adapter.bulk_update(&long_name, &updates, None).await;
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+        });
+    }
+
+    #[tokio::test]
+    async fn test_bulk_delete_not_connected() {
+        let adapter = SqliteAdapter::new();
+        let where_clauses = vec!["id = 1".to_string(), "id = 2".to_string()];
+
+        let result = adapter.bulk_delete("users", &where_clauses, None).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Connection(_)));
+    }
+
+    #[test]
+    fn test_bulk_delete_validation_empty_clauses() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let adapter = SqliteAdapter::new();
+            let where_clauses = vec![];
+
+            // Empty clauses should return Ok(0)
+            let result = adapter.bulk_delete("users", &where_clauses, None).await;
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), 0);
+        });
+    }
+
+    #[test]
+    fn test_bulk_delete_validation_table_name() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let adapter = SqliteAdapter::new();
+            let where_clauses = vec!["id = 1".to_string()];
+
+            // Empty table name
+            let result = adapter.bulk_delete("", &where_clauses, None).await;
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+
+            // Table name too long
+            let long_name = "a".repeat(2001);
+            let result = adapter.bulk_delete(&long_name, &where_clauses, None).await;
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+        });
+    }
+
+    #[test]
+    fn test_bulk_insert_all_data_types() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let adapter = SqliteAdapter::new();
+            let columns = vec![
+                "id".to_string(),
+                "name".to_string(),
+                "active".to_string(),
+                "score".to_string(),
+                "data".to_string(),
+                "description".to_string(),
+            ];
+            let rows = vec![
+                vec![
+                    QueryValue::Int(1),
+                    QueryValue::Text("Alice".to_string()),
+                    QueryValue::Bool(true),
+                    QueryValue::Float(95.5),
+                    QueryValue::Bytes(vec![1, 2, 3]),
+                    QueryValue::Null,
+                ],
+                vec![
+                    QueryValue::Int(2),
+                    QueryValue::Text("Bob".to_string()),
+                    QueryValue::Bool(false),
+                    QueryValue::Float(87.3),
+                    QueryValue::Bytes(vec![4, 5, 6]),
+                    QueryValue::Text("Some description".to_string()),
+                ],
+            ];
+
+            // Will fail at connection, but validates we handle all types
+            let result = adapter.bulk_insert("users", &columns, &rows, None).await;
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), DataError::Connection(_)));
+        });
     }
 }

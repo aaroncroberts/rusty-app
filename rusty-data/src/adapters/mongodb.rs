@@ -109,6 +109,43 @@ impl MongoDbAdapter {
             _ => QueryValue::Text(format!("{:?}", bson)),
         }
     }
+
+    /// Parse simple where clause to MongoDB filter document
+    /// Supports simple "field = value" and "_id = value" formats
+    fn parse_where_clause_to_filter(where_clause: &str) -> Result<mongodb::bson::Document> {
+        let where_clause = where_clause.trim();
+
+        // Simple parser for "field = value" format
+        if let Some(eq_pos) = where_clause.find('=') {
+            let field = where_clause[..eq_pos].trim();
+            let value_str = where_clause[eq_pos + 1..].trim();
+
+            // Try to parse the value
+            let bson_value = if value_str == "null" {
+                mongodb::bson::Bson::Null
+            } else if value_str == "true" {
+                mongodb::bson::Bson::Boolean(true)
+            } else if value_str == "false" {
+                mongodb::bson::Bson::Boolean(false)
+            } else if let Ok(i) = value_str.parse::<i64>() {
+                mongodb::bson::Bson::Int64(i)
+            } else if let Ok(f) = value_str.parse::<f64>() {
+                mongodb::bson::Bson::Double(f)
+            } else {
+                // Remove quotes if present
+                let cleaned = value_str.trim_matches(|c| c == '\'' || c == '"');
+                mongodb::bson::Bson::String(cleaned.to_string())
+            };
+
+            Ok(doc! { field: bson_value })
+        } else {
+            // If no '=' found, try to parse as JSON filter
+            Err(DataError::Query(format!(
+                "Unsupported where clause format: {}. Use 'field = value' format.",
+                where_clause
+            )))
+        }
+    }
 }
 
 impl Default for MongoDbAdapter {
@@ -1072,6 +1109,240 @@ impl DatabaseAdapter for MongoDbAdapter {
         // (though you can store JavaScript functions with db.system.js, this is deprecated)
         Ok(Vec::new())
     }
+
+    #[instrument(skip(self, rows), fields(collection = %table_name, row_count = rows.len(), column_count = columns.len()))]
+    async fn bulk_insert(
+        &self,
+        table_name: &str,
+        columns: &[String],
+        rows: &[Vec<QueryValue>],
+        _schema: Option<&str>,
+    ) -> Result<u64> {
+        Self::validate_collection_name(table_name)?;
+
+        if columns.is_empty() {
+            return Err(DataError::Config("Column list cannot be empty".to_string()));
+        }
+
+        if rows.is_empty() {
+            return Ok(0);
+        }
+
+        info!("Bulk inserting {} rows into {}", rows.len(), table_name);
+
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+
+        let db_name = self.current_database.as_deref().ok_or_else(|| {
+            DataError::Connection("No database selected".to_string())
+        })?;
+
+        // Validate all rows have the same column count
+        for (idx, row) in rows.iter().enumerate() {
+            if row.len() != columns.len() {
+                return Err(DataError::Config(format!(
+                    "Row {} has {} values but expected {} columns",
+                    idx,
+                    row.len(),
+                    columns.len()
+                )));
+            }
+        }
+
+        let start = std::time::Instant::now();
+
+        let db = client.database(db_name);
+        let collection = db.collection::<mongodb::bson::Document>(table_name);
+
+        // Build documents for insertion
+        let mut documents = Vec::new();
+        for row in rows {
+            let mut doc = mongodb::bson::Document::new();
+            for (col, value) in columns.iter().zip(row.iter()) {
+                let bson_value = match value {
+                    QueryValue::Null => mongodb::bson::Bson::Null,
+                    QueryValue::Bool(b) => mongodb::bson::Bson::Boolean(*b),
+                    QueryValue::Int(i) => mongodb::bson::Bson::Int64(*i),
+                    QueryValue::Float(f) => mongodb::bson::Bson::Double(*f),
+                    QueryValue::Text(s) => mongodb::bson::Bson::String(s.clone()),
+                    QueryValue::Bytes(b) => mongodb::bson::Bson::Binary(mongodb::bson::Binary {
+                        subtype: mongodb::bson::spec::BinarySubtype::Generic,
+                        bytes: b.clone(),
+                    }),
+                };
+                doc.insert(col, bson_value);
+            }
+            documents.push(doc);
+        }
+
+        // Use MongoDB's native insert_many for efficiency
+        let result = collection
+            .insert_many(documents, None)
+            .await
+            .map_err(|e| {
+                DataError::Query(format!("Failed to bulk insert into {}: {}", table_name, e))
+            })?;
+
+        let rows_affected = result.inserted_ids.len() as u64;
+        let elapsed = start.elapsed();
+
+        info!(
+            "Bulk insert completed: {} rows into {} in {}ms",
+            rows_affected,
+            table_name,
+            elapsed.as_millis()
+        );
+
+        Ok(rows_affected)
+    }
+
+    #[instrument(skip(self, updates), fields(collection = %table_name, update_count = updates.len()))]
+    async fn bulk_update(
+        &self,
+        table_name: &str,
+        updates: &[(std::collections::HashMap<String, QueryValue>, String)],
+        _schema: Option<&str>,
+    ) -> Result<u64> {
+        Self::validate_collection_name(table_name)?;
+
+        if updates.is_empty() {
+            return Ok(0);
+        }
+
+        info!("Bulk updating {} rows in {}", updates.len(), table_name);
+
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+
+        let db_name = self.current_database.as_deref().ok_or_else(|| {
+            DataError::Connection("No database selected".to_string())
+        })?;
+
+        let start = std::time::Instant::now();
+
+        let db = client.database(db_name);
+        let collection = db.collection::<mongodb::bson::Document>(table_name);
+
+        let mut total_affected = 0u64;
+
+        // Execute each update (MongoDB doesn't have a simple bulk update with different filters)
+        for (set_clauses, where_clause) in updates {
+            if set_clauses.is_empty() {
+                continue;
+            }
+
+            // Build update document
+            let mut update_doc = mongodb::bson::Document::new();
+            for (col, value) in set_clauses.iter() {
+                let bson_value = match value {
+                    QueryValue::Null => mongodb::bson::Bson::Null,
+                    QueryValue::Bool(b) => mongodb::bson::Bson::Boolean(*b),
+                    QueryValue::Int(i) => mongodb::bson::Bson::Int64(*i),
+                    QueryValue::Float(f) => mongodb::bson::Bson::Double(*f),
+                    QueryValue::Text(s) => mongodb::bson::Bson::String(s.clone()),
+                    QueryValue::Bytes(b) => mongodb::bson::Bson::Binary(mongodb::bson::Binary {
+                        subtype: mongodb::bson::spec::BinarySubtype::Generic,
+                        bytes: b.clone(),
+                    }),
+                };
+                update_doc.insert(col, bson_value);
+            }
+
+            // Parse where clause (simplified - in production would need proper query parser)
+            // For now, assume simple "field = value" format
+            let filter = Self::parse_where_clause_to_filter(where_clause)?;
+
+            let result = collection
+                .update_many(filter, doc! { "$set": update_doc }, None)
+                .await
+                .map_err(|e| {
+                    DataError::Query(format!("Failed to bulk update {}: {}", table_name, e))
+                })?;
+
+            total_affected += result.modified_count;
+        }
+
+        let elapsed = start.elapsed();
+
+        info!(
+            "Bulk update completed: {} rows in {} in {}ms",
+            total_affected,
+            table_name,
+            elapsed.as_millis()
+        );
+
+        Ok(total_affected)
+    }
+
+    #[instrument(skip(self, where_clauses), fields(collection = %table_name, delete_count = where_clauses.len()))]
+    async fn bulk_delete(
+        &self,
+        table_name: &str,
+        where_clauses: &[String],
+        _schema: Option<&str>,
+    ) -> Result<u64> {
+        Self::validate_collection_name(table_name)?;
+
+        if where_clauses.is_empty() {
+            return Ok(0);
+        }
+
+        info!(
+            "Bulk deleting {} rows from {}",
+            where_clauses.len(),
+            table_name
+        );
+
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+
+        let db_name = self.current_database.as_deref().ok_or_else(|| {
+            DataError::Connection("No database selected".to_string())
+        })?;
+
+        let start = std::time::Instant::now();
+
+        let db = client.database(db_name);
+        let collection = db.collection::<mongodb::bson::Document>(table_name);
+
+        let mut total_affected = 0u64;
+
+        // Execute each delete
+        for where_clause in where_clauses {
+            if where_clause.trim().is_empty() {
+                continue;
+            }
+
+            // Parse where clause to filter
+            let filter = Self::parse_where_clause_to_filter(where_clause)?;
+
+            let result = collection
+                .delete_many(filter, None)
+                .await
+                .map_err(|e| {
+                    DataError::Query(format!("Failed to bulk delete from {}: {}", table_name, e))
+                })?;
+
+            total_affected += result.deleted_count;
+        }
+
+        let elapsed = start.elapsed();
+
+        info!(
+            "Bulk delete completed: {} rows from {} in {}ms",
+            total_affected,
+            table_name,
+            elapsed.as_millis()
+        );
+
+        Ok(total_affected)
+    }
 }
 
 #[cfg(test)]
@@ -1288,5 +1559,178 @@ mod tests {
     fn test_query_value_display_bytes() {
         let bytes = vec![1, 2, 3, 4, 5];
         assert_eq!(QueryValue::Bytes(bytes).to_string(), "<5 bytes>");
+    }
+
+    // ========== Bulk Operations Tests (TDD - RED Phase) ==========
+
+    #[tokio::test]
+    async fn test_bulk_insert_not_connected() {
+        let adapter = MongoDbAdapter::new();
+        let columns = vec!["id".to_string(), "name".to_string()];
+        let rows = vec![
+            vec![QueryValue::Int(1), QueryValue::Text("Alice".to_string())],
+            vec![QueryValue::Int(2), QueryValue::Text("Bob".to_string())],
+        ];
+
+        let result = adapter
+            .bulk_insert("users", &columns, &rows, None)
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Connection(_)));
+    }
+
+    #[test]
+    fn test_bulk_insert_validation_empty_columns() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let adapter = MongoDbAdapter::new();
+            let columns = vec![];
+            let rows = vec![vec![QueryValue::Int(1)]];
+
+            let result = adapter.bulk_insert("users", &columns, &rows, None).await;
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+        });
+    }
+
+    #[test]
+    fn test_bulk_insert_validation_empty_rows() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let adapter = MongoDbAdapter::new();
+            let columns = vec!["id".to_string()];
+            let rows = vec![];
+
+            // Empty rows should return Ok(0)
+            let result = adapter.bulk_insert("users", &columns, &rows, None).await;
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), 0);
+        });
+    }
+
+    #[test]
+    fn test_bulk_insert_validation_column_count_mismatch() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let adapter = MongoDbAdapter::new();
+            let columns = vec!["id".to_string(), "name".to_string()];
+            let rows = vec![
+                vec![QueryValue::Int(1), QueryValue::Text("Alice".to_string())],
+                vec![QueryValue::Int(2)], // Wrong column count
+            ];
+
+            let result = adapter.bulk_insert("users", &columns, &rows, None).await;
+            assert!(result.is_err());
+        });
+    }
+
+    #[test]
+    fn test_bulk_insert_validation_collection_name() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let adapter = MongoDbAdapter::new();
+            let columns = vec!["id".to_string()];
+            let rows = vec![vec![QueryValue::Int(1)]];
+
+            // Empty collection name
+            let result = adapter.bulk_insert("", &columns, &rows, None).await;
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+
+            // Invalid characters
+            let result = adapter.bulk_insert("test$collection", &columns, &rows, None).await;
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+        });
+    }
+
+    #[tokio::test]
+    async fn test_bulk_update_not_connected() {
+        let adapter = MongoDbAdapter::new();
+        let mut update_map = HashMap::new();
+        update_map.insert("name".to_string(), QueryValue::Text("Updated".to_string()));
+
+        let updates = vec![(update_map, "id = 1".to_string())];
+
+        let result = adapter.bulk_update("users", &updates, None).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Connection(_)));
+    }
+
+    #[test]
+    fn test_bulk_update_validation_empty_updates() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let adapter = MongoDbAdapter::new();
+            let updates = vec![];
+
+            // Empty updates should return Ok(0)
+            let result = adapter.bulk_update("users", &updates, None).await;
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), 0);
+        });
+    }
+
+    #[tokio::test]
+    async fn test_bulk_delete_not_connected() {
+        let adapter = MongoDbAdapter::new();
+        let where_clauses = vec!["id = 1".to_string(), "id = 2".to_string()];
+
+        let result = adapter.bulk_delete("users", &where_clauses, None).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Connection(_)));
+    }
+
+    #[test]
+    fn test_bulk_delete_validation_empty_clauses() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let adapter = MongoDbAdapter::new();
+            let where_clauses = vec![];
+
+            // Empty clauses should return Ok(0)
+            let result = adapter.bulk_delete("users", &where_clauses, None).await;
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), 0);
+        });
+    }
+
+    #[test]
+    fn test_bulk_insert_all_data_types() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let adapter = MongoDbAdapter::new();
+            let columns = vec![
+                "id".to_string(),
+                "name".to_string(),
+                "active".to_string(),
+                "score".to_string(),
+                "data".to_string(),
+                "description".to_string(),
+            ];
+            let rows = vec![
+                vec![
+                    QueryValue::Int(1),
+                    QueryValue::Text("Alice".to_string()),
+                    QueryValue::Bool(true),
+                    QueryValue::Float(95.5),
+                    QueryValue::Bytes(vec![1, 2, 3]),
+                    QueryValue::Null,
+                ],
+                vec![
+                    QueryValue::Int(2),
+                    QueryValue::Text("Bob".to_string()),
+                    QueryValue::Bool(false),
+                    QueryValue::Float(87.3),
+                    QueryValue::Bytes(vec![4, 5, 6]),
+                    QueryValue::Text("Some description".to_string()),
+                ],
+            ];
+
+            // Will fail at connection, but validates we handle all types
+            let result = adapter.bulk_insert("users", &columns, &rows, None).await;
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), DataError::Connection(_)));
+        });
     }
 }

@@ -488,3 +488,322 @@ async fn test_sqlite_list_stored_procedures() -> Result<()> {
     info!("Test completed: test_sqlite_list_stored_procedures");
     Ok(())
 }
+
+// ========== Bulk Operations Integration Tests ==========
+
+#[tokio::test]
+async fn test_sqlite_bulk_insert() -> Result<()> {
+    use rusty_data::adapter::QueryValue;
+
+    info!("Starting test: test_sqlite_bulk_insert");
+
+    ensure_test_dir();
+    let db_path = unique_db_path();
+    let mut adapter = SqliteAdapter::new();
+    let config = get_sqlite_config(&db_path);
+
+    adapter.connect(&config, None).await?;
+
+    // Create test table
+    info!("Creating test table for bulk insert");
+    adapter
+        .execute_query(
+            "
+        CREATE TABLE test_bulk_insert (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT,
+            active INTEGER,
+            score REAL
+        )
+    ",
+        )
+        .await?;
+
+    // Prepare bulk insert data
+    info!("Preparing bulk insert data");
+    let columns = vec![
+        "id".to_string(),
+        "name".to_string(),
+        "email".to_string(),
+        "active".to_string(),
+        "score".to_string(),
+    ];
+
+    let rows = vec![
+        vec![
+            QueryValue::Int(1),
+            QueryValue::Text("Alice".to_string()),
+            QueryValue::Text("alice@example.com".to_string()),
+            QueryValue::Bool(true),
+            QueryValue::Float(95.5),
+        ],
+        vec![
+            QueryValue::Int(2),
+            QueryValue::Text("Bob".to_string()),
+            QueryValue::Text("bob@example.com".to_string()),
+            QueryValue::Bool(false),
+            QueryValue::Float(87.3),
+        ],
+        vec![
+            QueryValue::Int(3),
+            QueryValue::Text("Charlie".to_string()),
+            QueryValue::Null,
+            QueryValue::Bool(true),
+            QueryValue::Float(92.8),
+        ],
+        vec![
+            QueryValue::Int(4),
+            QueryValue::Text("Diana".to_string()),
+            QueryValue::Text("diana@example.com".to_string()),
+            QueryValue::Bool(true),
+            QueryValue::Float(98.1),
+        ],
+    ];
+
+    // Execute bulk insert
+    info!("Executing bulk insert of {} rows", rows.len());
+    let rows_affected = adapter
+        .bulk_insert("test_bulk_insert", &columns, &rows, None)
+        .await?;
+
+    assert_eq!(rows_affected, 4);
+    debug!("Bulk insert completed: {} rows affected", rows_affected);
+
+    // Verify the data was inserted
+    info!("Verifying inserted data");
+    let result = adapter
+        .execute_query("SELECT * FROM test_bulk_insert ORDER BY id")
+        .await?;
+
+    assert_eq!(result.rows.len(), 4);
+    assert_eq!(result.columns, vec!["id", "name", "email", "active", "score"]);
+    debug!("Data verification successful");
+
+    adapter.disconnect().await?;
+    cleanup_db_file(&db_path);
+
+    info!("Test completed: test_sqlite_bulk_insert");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_sqlite_bulk_update() -> Result<()> {
+    use rusty_data::adapter::QueryValue;
+    use std::collections::HashMap;
+
+    info!("Starting test: test_sqlite_bulk_update");
+
+    ensure_test_dir();
+    let db_path = unique_db_path();
+    let mut adapter = SqliteAdapter::new();
+    let config = get_sqlite_config(&db_path);
+
+    adapter.connect(&config, None).await?;
+
+    // Create test table with sample data
+    info!("Creating test table for bulk update");
+    adapter
+        .execute_query(
+            "
+        CREATE TABLE test_bulk_update (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            status TEXT,
+            score INTEGER
+        )
+    ",
+        )
+        .await?;
+
+    // Insert initial data
+    adapter
+        .execute_query(
+            "
+        INSERT INTO test_bulk_update (id, name, status, score) VALUES
+        (1, 'Alice', 'pending', 50),
+        (2, 'Bob', 'pending', 60),
+        (3, 'Charlie', 'active', 70),
+        (4, 'Diana', 'pending', 80)
+    ",
+        )
+        .await?;
+
+    // Prepare bulk updates
+    info!("Preparing bulk update data");
+    let mut update1 = HashMap::new();
+    update1.insert("status".to_string(), QueryValue::Text("active".to_string()));
+    update1.insert("score".to_string(), QueryValue::Int(100));
+
+    let mut update2 = HashMap::new();
+    update2.insert("status".to_string(), QueryValue::Text("completed".to_string()));
+
+    let updates = vec![
+        (update1, "id = 1".to_string()),
+        (update2, "id = 2".to_string()),
+    ];
+
+    // Execute bulk update
+    info!("Executing bulk update");
+    let rows_affected = adapter
+        .bulk_update("test_bulk_update", &updates, None)
+        .await?;
+
+    assert_eq!(rows_affected, 2);
+    debug!("Bulk update completed: {} rows affected", rows_affected);
+
+    // Verify the updates
+    info!("Verifying updated data");
+    let result = adapter
+        .execute_query("SELECT * FROM test_bulk_update WHERE id IN (1, 2) ORDER BY id")
+        .await?;
+
+    assert_eq!(result.rows.len(), 2);
+    debug!("Update verification successful");
+
+    adapter.disconnect().await?;
+    cleanup_db_file(&db_path);
+
+    info!("Test completed: test_sqlite_bulk_update");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_sqlite_bulk_delete() -> Result<()> {
+    info!("Starting test: test_sqlite_bulk_delete");
+
+    ensure_test_dir();
+    let db_path = unique_db_path();
+    let mut adapter = SqliteAdapter::new();
+    let config = get_sqlite_config(&db_path);
+
+    adapter.connect(&config, None).await?;
+
+    // Create test table with sample data
+    info!("Creating test table for bulk delete");
+    adapter
+        .execute_query(
+            "
+        CREATE TABLE test_bulk_delete (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            status TEXT
+        )
+    ",
+        )
+        .await?;
+
+    // Insert initial data
+    adapter
+        .execute_query(
+            "
+        INSERT INTO test_bulk_delete (id, name, status) VALUES
+        (1, 'Alice', 'active'),
+        (2, 'Bob', 'inactive'),
+        (3, 'Charlie', 'active'),
+        (4, 'Diana', 'inactive'),
+        (5, 'Eve', 'active'),
+        (6, 'Frank', 'inactive')
+    ",
+        )
+        .await?;
+
+    // Prepare bulk deletes
+    info!("Preparing bulk delete clauses");
+    let where_clauses = vec![
+        "id = 2".to_string(),
+        "id = 4".to_string(),
+        "id = 6".to_string(),
+    ];
+
+    // Execute bulk delete
+    info!("Executing bulk delete");
+    let rows_affected = adapter
+        .bulk_delete("test_bulk_delete", &where_clauses, None)
+        .await?;
+
+    assert_eq!(rows_affected, 3);
+    debug!("Bulk delete completed: {} rows affected", rows_affected);
+
+    // Verify remaining data
+    info!("Verifying remaining data");
+    let result = adapter
+        .execute_query("SELECT * FROM test_bulk_delete ORDER BY id")
+        .await?;
+
+    assert_eq!(result.rows.len(), 3);
+    // Should have IDs 1, 3, 5 remaining
+    debug!("Delete verification successful: {} rows remain", result.rows.len());
+
+    adapter.disconnect().await?;
+    cleanup_db_file(&db_path);
+
+    info!("Test completed: test_sqlite_bulk_delete");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_sqlite_bulk_insert_large_batch() -> Result<()> {
+    use rusty_data::adapter::QueryValue;
+
+    info!("Starting test: test_sqlite_bulk_insert_large_batch");
+
+    ensure_test_dir();
+    let db_path = unique_db_path();
+    let mut adapter = SqliteAdapter::new();
+    let config = get_sqlite_config(&db_path);
+
+    adapter.connect(&config, None).await?;
+
+    // Create test table
+    info!("Creating test table for large batch insert");
+    adapter
+        .execute_query(
+            "
+        CREATE TABLE test_bulk_large (
+            id INTEGER PRIMARY KEY,
+            data TEXT
+        )
+    ",
+        )
+        .await?;
+
+    // Generate 1000 rows
+    info!("Generating 1000 rows for bulk insert");
+    let columns = vec!["id".to_string(), "data".to_string()];
+    let mut rows = Vec::new();
+
+    for i in 1..=1000 {
+        rows.push(vec![
+            QueryValue::Int(i),
+            QueryValue::Text(format!("data_{}", i)),
+        ]);
+    }
+
+    // Execute bulk insert
+    info!("Executing bulk insert of 1000 rows");
+    let start = std::time::Instant::now();
+    let rows_affected = adapter
+        .bulk_insert("test_bulk_large", &columns, &rows, None)
+        .await?;
+    let elapsed = start.elapsed();
+
+    assert_eq!(rows_affected, 1000);
+    info!(
+        "Bulk insert completed: {} rows in {}ms",
+        rows_affected,
+        elapsed.as_millis()
+    );
+
+    // Verify count
+    let result = adapter
+        .execute_query("SELECT COUNT(*) FROM test_bulk_large")
+        .await?;
+    assert_eq!(result.rows.len(), 1);
+
+    adapter.disconnect().await?;
+    cleanup_db_file(&db_path);
+
+    info!("Test completed: test_sqlite_bulk_insert_large_batch");
+    Ok(())
+}

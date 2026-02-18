@@ -589,6 +589,223 @@ async fn test_oracle_list_stored_procedures() -> Result<()> {
 
 #[tokio::test]
 #[ignore]
+async fn test_oracle_bulk_insert() -> Result<()> {
+    info!("Starting test: test_oracle_bulk_insert");
+
+    let mut adapter = setup().await?;
+
+    // Create test table
+    info!("Creating test table");
+    adapter.execute_query("
+        CREATE TABLE test_bulk_insert (
+            id NUMBER PRIMARY KEY,
+            name VARCHAR2(100),
+            value NUMBER
+        )
+    ").await?;
+
+    // Prepare bulk insert data
+    use rusty_data::adapter::QueryValue;
+    let columns = vec!["id".to_string(), "name".to_string(), "value".to_string()];
+    let rows = vec![
+        vec![
+            QueryValue::Int(1),
+            QueryValue::Text("Alice".to_string()),
+            QueryValue::Int(100),
+        ],
+        vec![
+            QueryValue::Int(2),
+            QueryValue::Text("Bob".to_string()),
+            QueryValue::Int(200),
+        ],
+        vec![
+            QueryValue::Int(3),
+            QueryValue::Text("Charlie".to_string()),
+            QueryValue::Int(300),
+        ],
+    ];
+
+    // Execute bulk insert
+    info!("Testing bulk_insert");
+    let rows_inserted = adapter.bulk_insert("test_bulk_insert", &columns, &rows, None).await?;
+    assert_eq!(rows_inserted, 3);
+    debug!("Inserted {} rows", rows_inserted);
+
+    // Verify data was inserted
+    let result = adapter.execute_query("SELECT * FROM test_bulk_insert ORDER BY id").await?;
+    assert_eq!(result.rows.len(), 3);
+    debug!("Verified {} rows in table", result.rows.len());
+
+    // Cleanup
+    adapter.execute_query("DROP TABLE test_bulk_insert").await?;
+
+    adapter.disconnect().await?;
+    info!("Test completed: test_oracle_bulk_insert");
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_oracle_bulk_update() -> Result<()> {
+    info!("Starting test: test_oracle_bulk_update");
+
+    let mut adapter = setup().await?;
+
+    // Create test table and insert initial data
+    info!("Creating test table and initial data");
+    adapter.execute_query("
+        CREATE TABLE test_bulk_update (
+            id NUMBER PRIMARY KEY,
+            name VARCHAR2(100),
+            status VARCHAR2(50)
+        )
+    ").await?;
+
+    adapter.execute_query("
+        INSERT ALL
+            INTO test_bulk_update (id, name, status) VALUES (1, 'Alice', 'active')
+            INTO test_bulk_update (id, name, status) VALUES (2, 'Bob', 'active')
+            INTO test_bulk_update (id, name, status) VALUES (3, 'Charlie', 'active')
+        SELECT * FROM DUAL
+    ").await?;
+
+    // Prepare bulk update operations
+    use rusty_data::adapter::QueryValue;
+    use std::collections::HashMap;
+
+    let mut update1 = HashMap::new();
+    update1.insert("status".to_string(), QueryValue::Text("inactive".to_string()));
+
+    let mut update2 = HashMap::new();
+    update2.insert("status".to_string(), QueryValue::Text("suspended".to_string()));
+
+    let updates = vec![
+        (update1, "id = 1".to_string()),
+        (update2, "id = 3".to_string()),
+    ];
+
+    // Execute bulk update
+    info!("Testing bulk_update");
+    let rows_updated = adapter.bulk_update("test_bulk_update", &updates, None).await?;
+    assert_eq!(rows_updated, 2);
+    debug!("Updated {} rows", rows_updated);
+
+    // Verify updates
+    let result = adapter.execute_query("SELECT * FROM test_bulk_update WHERE status != 'active' ORDER BY id").await?;
+    assert_eq!(result.rows.len(), 2);
+    debug!("Verified {} updated rows", result.rows.len());
+
+    // Cleanup
+    adapter.execute_query("DROP TABLE test_bulk_update").await?;
+
+    adapter.disconnect().await?;
+    info!("Test completed: test_oracle_bulk_update");
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_oracle_bulk_delete() -> Result<()> {
+    info!("Starting test: test_oracle_bulk_delete");
+
+    let mut adapter = setup().await?;
+
+    // Create test table and insert data
+    info!("Creating test table and initial data");
+    adapter.execute_query("
+        CREATE TABLE test_bulk_delete (
+            id NUMBER PRIMARY KEY,
+            name VARCHAR2(100)
+        )
+    ").await?;
+
+    adapter.execute_query("
+        INSERT ALL
+            INTO test_bulk_delete (id, name) VALUES (1, 'Alice')
+            INTO test_bulk_delete (id, name) VALUES (2, 'Bob')
+            INTO test_bulk_delete (id, name) VALUES (3, 'Charlie')
+            INTO test_bulk_delete (id, name) VALUES (4, 'David')
+            INTO test_bulk_delete (id, name) VALUES (5, 'Eve')
+        SELECT * FROM DUAL
+    ").await?;
+
+    // Prepare bulk delete
+    let where_clauses = vec![
+        "id = 2".to_string(),
+        "id = 4".to_string(),
+        "id = 5".to_string(),
+    ];
+
+    // Execute bulk delete
+    info!("Testing bulk_delete");
+    let rows_deleted = adapter.bulk_delete("test_bulk_delete", &where_clauses, None).await?;
+    assert_eq!(rows_deleted, 3);
+    debug!("Deleted {} rows", rows_deleted);
+
+    // Verify deletions
+    let result = adapter.execute_query("SELECT * FROM test_bulk_delete ORDER BY id").await?;
+    assert_eq!(result.rows.len(), 2);
+    debug!("Remaining rows: {}", result.rows.len());
+
+    // Cleanup
+    adapter.execute_query("DROP TABLE test_bulk_delete").await?;
+
+    adapter.disconnect().await?;
+    info!("Test completed: test_oracle_bulk_delete");
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_oracle_bulk_insert_large_batch() -> Result<()> {
+    info!("Starting test: test_oracle_bulk_insert_large_batch");
+
+    let mut adapter = setup().await?;
+
+    // Create test table
+    info!("Creating test table");
+    adapter.execute_query("
+        CREATE TABLE test_bulk_large (
+            id NUMBER PRIMARY KEY,
+            value NUMBER
+        )
+    ").await?;
+
+    // Prepare large batch (1000 rows)
+    use rusty_data::adapter::QueryValue;
+    let columns = vec!["id".to_string(), "value".to_string()];
+    let mut rows = Vec::new();
+    for i in 1..=1000 {
+        rows.push(vec![
+            QueryValue::Int(i),
+            QueryValue::Int(i * 10),
+        ]);
+    }
+
+    // Execute bulk insert
+    info!("Testing bulk_insert with 1000 rows");
+    let start = std::time::Instant::now();
+    let rows_inserted = adapter.bulk_insert("test_bulk_large", &columns, &rows, None).await?;
+    let duration = start.elapsed();
+
+    assert_eq!(rows_inserted, 1000);
+    info!("Inserted {} rows in {:?}", rows_inserted, duration);
+
+    // Verify count
+    let result = adapter.execute_query("SELECT COUNT(*) as cnt FROM test_bulk_large").await?;
+    assert_eq!(result.rows.len(), 1);
+    debug!("Verified all rows inserted");
+
+    // Cleanup
+    adapter.execute_query("DROP TABLE test_bulk_large").await?;
+
+    adapter.disconnect().await?;
+    info!("Test completed: test_oracle_bulk_insert_large_batch");
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
 async fn test_zzz_cleanup_oracle_database() -> Result<()> {
     info!("Oracle cleanup: Using existing FREE database, no database drop needed");
 

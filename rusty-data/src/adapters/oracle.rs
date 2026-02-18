@@ -7,6 +7,7 @@ use crate::error::{DataError, Result};
 use crate::pool::Pool;
 use async_trait::async_trait;
 use oracle::{Connection, Row};
+use std::collections::HashMap;
 use tracing::{debug, info, instrument, warn};
 
 /// Oracle database adapter
@@ -974,6 +975,276 @@ impl DatabaseAdapter for OracleAdapter {
 
         Ok(procedures)
     }
+
+    #[instrument(skip(self, rows))]
+    async fn bulk_insert(
+        &self,
+        table_name: &str,
+        columns: &[String],
+        rows: &[Vec<QueryValue>],
+        schema: Option<&str>,
+    ) -> Result<u64> {
+        let start = std::time::Instant::now();
+        info!(
+            "Bulk inserting {} rows into table: {}",
+            rows.len(),
+            table_name
+        );
+
+        // Validation
+        Self::validate_table_name(table_name)?;
+        if columns.is_empty() {
+            return Err(DataError::Config(
+                "Column list cannot be empty".to_string(),
+            ));
+        }
+        if rows.is_empty() {
+            return Err(DataError::Config("Rows cannot be empty".to_string()));
+        }
+
+        // Validate all rows have correct column count
+        for (idx, row) in rows.iter().enumerate() {
+            if row.len() != columns.len() {
+                return Err(DataError::Config(format!(
+                    "Row {} has {} values but expected {} columns",
+                    idx,
+                    row.len(),
+                    columns.len()
+                )));
+            }
+        }
+
+        // Check connection
+        let pool = self.pool.as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
+            .clone();
+
+        // Build Oracle INSERT ALL statement
+        let schema_prefix = schema.map(|s| format!("{}.", s)).unwrap_or_default();
+        let column_list = columns.join(", ");
+
+        // Oracle INSERT ALL syntax:
+        // INSERT ALL
+        //   INTO table (col1, col2) VALUES (val1, val2)
+        //   INTO table (col1, col2) VALUES (val3, val4)
+        // SELECT * FROM DUAL
+
+        let mut query = String::from("INSERT ALL\n");
+        for row in rows {
+            let values: Vec<String> = row
+                .iter()
+                .map(|v| match v {
+                    QueryValue::Null => "NULL".to_string(),
+                    QueryValue::Bool(b) => if *b { "1" } else { "0" }.to_string(),
+                    QueryValue::Int(i) => i.to_string(),
+                    QueryValue::Float(f) => f.to_string(),
+                    QueryValue::Text(s) => format!("'{}'", s.replace("'", "''")),
+                    QueryValue::Bytes(b) => {
+                        let hex_str: String = b.iter().map(|byte| format!("{:02X}", byte)).collect();
+                        format!("HEXTORAW('{}')", hex_str)
+                    }
+                })
+                .collect();
+
+            query.push_str(&format!(
+                "  INTO {}{} ({}) VALUES ({})\n",
+                schema_prefix,
+                table_name,
+                column_list,
+                values.join(", ")
+            ));
+        }
+        query.push_str("SELECT * FROM DUAL");
+
+        debug!("Executing bulk insert query");
+
+        let num_rows = rows.len() as u64;
+        tokio::task::spawn_blocking(move || {
+            let conn_guard = futures::executor::block_on(pool.lock());
+
+            let mut stmt = conn_guard.statement(&query).build().map_err(|e| {
+                DataError::Query(format!("Failed to prepare statement: {}", e))
+            })?;
+
+            stmt.execute(&[]).map_err(|e| {
+                DataError::Query(format!("Failed to execute bulk insert: {}", e))
+            })?;
+
+            Ok::<(), DataError>(())
+        })
+        .await
+        .map_err(|e| DataError::Query(format!("Failed to execute bulk insert: {}", e)))??;
+
+        let rows_affected = num_rows;
+
+        let elapsed = start.elapsed();
+        info!(
+            "Bulk inserted {} rows in {:?} ({:.2} rows/sec)",
+            rows_affected,
+            elapsed,
+            rows_affected as f64 / elapsed.as_secs_f64()
+        );
+
+        Ok(rows_affected)
+    }
+
+    #[instrument(skip(self, updates))]
+    async fn bulk_update(
+        &self,
+        table_name: &str,
+        updates: &[(HashMap<String, QueryValue>, String)],
+        schema: Option<&str>,
+    ) -> Result<u64> {
+        let start = std::time::Instant::now();
+        info!(
+            "Bulk updating {} rows in table: {}",
+            updates.len(),
+            table_name
+        );
+
+        // Validation
+        Self::validate_table_name(table_name)?;
+        if updates.is_empty() {
+            return Err(DataError::Config("Updates cannot be empty".to_string()));
+        }
+
+        // Check connection
+        let pool = self.pool.as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
+            .clone();
+
+        let schema_prefix = schema.map(|s| format!("{}.", s)).unwrap_or_default();
+
+        // Execute updates individually
+        let mut total_affected = 0u64;
+        for (column_values, where_clause) in updates {
+            if column_values.is_empty() {
+                continue;
+            }
+
+            let set_clauses: Vec<String> = column_values
+                .iter()
+                .map(|(col, val)| {
+                    let value_str = match val {
+                        QueryValue::Null => "NULL".to_string(),
+                        QueryValue::Bool(b) => if *b { "1" } else { "0" }.to_string(),
+                        QueryValue::Int(i) => i.to_string(),
+                        QueryValue::Float(f) => f.to_string(),
+                        QueryValue::Text(s) => format!("'{}'", s.replace("'", "''")),
+                        QueryValue::Bytes(b) => {
+                            let hex_str: String =
+                                b.iter().map(|byte| format!("{:02X}", byte)).collect();
+                            format!("HEXTORAW('{}')", hex_str)
+                        }
+                    };
+                    format!("{} = {}", col, value_str)
+                })
+                .collect();
+
+            let query = format!(
+                "UPDATE {}{} SET {} WHERE {}",
+                schema_prefix,
+                table_name,
+                set_clauses.join(", "),
+                where_clause
+            );
+
+            let pool_clone = pool.clone();
+            tokio::task::spawn_blocking(move || {
+                let conn_guard = futures::executor::block_on(pool_clone.lock());
+
+                let mut stmt = conn_guard.statement(&query).build().map_err(|e| {
+                    DataError::Query(format!("Failed to prepare statement: {}", e))
+                })?;
+
+                stmt.execute(&[]).map_err(|e| {
+                    DataError::Query(format!("Failed to execute update: {}", e))
+                })?;
+
+                Ok::<(), DataError>(())
+            })
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to execute bulk update: {}", e)))??;
+
+            total_affected += 1;
+        }
+
+        let elapsed = start.elapsed();
+        info!(
+            "Bulk updated {} rows in {:?}",
+            total_affected,
+            elapsed
+        );
+
+        Ok(total_affected)
+    }
+
+    #[instrument(skip(self, where_clauses))]
+    async fn bulk_delete(
+        &self,
+        table_name: &str,
+        where_clauses: &[String],
+        schema: Option<&str>,
+    ) -> Result<u64> {
+        let start = std::time::Instant::now();
+        info!(
+            "Bulk deleting {} rows from table: {}",
+            where_clauses.len(),
+            table_name
+        );
+
+        // Validation
+        Self::validate_table_name(table_name)?;
+        if where_clauses.is_empty() {
+            return Err(DataError::Config(
+                "Where clauses cannot be empty".to_string(),
+            ));
+        }
+
+        // Check connection
+        let pool = self.pool.as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
+            .clone();
+
+        let schema_prefix = schema.map(|s| format!("{}.", s)).unwrap_or_default();
+
+        // Execute deletes individually
+        let mut total_affected = 0u64;
+        for where_clause in where_clauses {
+            let query = format!(
+                "DELETE FROM {}{} WHERE {}",
+                schema_prefix, table_name, where_clause
+            );
+
+            let pool_clone = pool.clone();
+            tokio::task::spawn_blocking(move || {
+                let conn_guard = futures::executor::block_on(pool_clone.lock());
+
+                let mut stmt = conn_guard.statement(&query).build().map_err(|e| {
+                    DataError::Query(format!("Failed to prepare statement: {}", e))
+                })?;
+
+                stmt.execute(&[]).map_err(|e| {
+                    DataError::Query(format!("Failed to execute delete: {}", e))
+                })?;
+
+                Ok::<(), DataError>(())
+            })
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to execute bulk delete: {}", e)))??;
+
+            total_affected += 1;
+        }
+
+        let elapsed = start.elapsed();
+        info!(
+            "Bulk deleted {} rows in {:?}",
+            total_affected,
+            elapsed
+        );
+
+        Ok(total_affected)
+    }
 }
 
 #[cfg(test)]
@@ -1085,5 +1356,109 @@ mod tests {
         assert_eq!(QueryValue::Float(3.14).to_string(), "3.14");
         assert_eq!(QueryValue::Text("hello".to_string()).to_string(), "hello");
         assert_eq!(QueryValue::Bytes(vec![1, 2, 3]).to_string(), "<3 bytes>");
+    }
+
+    // ===== Bulk Operations Unit Tests =====
+    #[tokio::test]
+    async fn test_bulk_insert_not_connected() {
+        let adapter = OracleAdapter::new();
+        let columns = vec!["id".to_string(), "name".to_string()];
+        let rows = vec![
+            vec![QueryValue::Int(1), QueryValue::Text("Alice".to_string())],
+        ];
+        let result = adapter.bulk_insert("test_table", &columns, &rows, None).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Connection(_)));
+    }
+
+    #[tokio::test]
+    async fn test_bulk_insert_empty_table_name() {
+        let adapter = OracleAdapter::new();
+        let columns = vec!["id".to_string()];
+        let rows = vec![vec![QueryValue::Int(1)]];
+        let result = adapter.bulk_insert("", &columns, &rows, None).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[tokio::test]
+    async fn test_bulk_insert_empty_columns() {
+        let adapter = OracleAdapter::new();
+        let columns: Vec<String> = vec![];
+        let rows = vec![vec![QueryValue::Int(1)]];
+        let result = adapter.bulk_insert("test_table", &columns, &rows, None).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[tokio::test]
+    async fn test_bulk_insert_empty_rows() {
+        let adapter = OracleAdapter::new();
+        let columns = vec!["id".to_string()];
+        let rows: Vec<Vec<QueryValue>> = vec![];
+        let result = adapter.bulk_insert("test_table", &columns, &rows, None).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[tokio::test]
+    async fn test_bulk_insert_column_row_mismatch() {
+        let adapter = OracleAdapter::new();
+        let columns = vec!["id".to_string(), "name".to_string()];
+        let rows = vec![
+            vec![QueryValue::Int(1)], // Only 1 value, but 2 columns
+        ];
+        let result = adapter.bulk_insert("test_table", &columns, &rows, None).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[tokio::test]
+    async fn test_bulk_update_not_connected() {
+        let adapter = OracleAdapter::new();
+        let mut update = HashMap::new();
+        update.insert("name".to_string(), QueryValue::Text("Updated".to_string()));
+        let updates = vec![(update, "id = 1".to_string())];
+        let result = adapter.bulk_update("test_table", &updates, None).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Connection(_)));
+    }
+
+    #[tokio::test]
+    async fn test_bulk_update_empty_table_name() {
+        let adapter = OracleAdapter::new();
+        let mut update = HashMap::new();
+        update.insert("name".to_string(), QueryValue::Text("Updated".to_string()));
+        let updates = vec![(update, "id = 1".to_string())];
+        let result = adapter.bulk_update("", &updates, None).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[tokio::test]
+    async fn test_bulk_update_empty_updates() {
+        let adapter = OracleAdapter::new();
+        let updates: Vec<(HashMap<String, QueryValue>, String)> = vec![];
+        let result = adapter.bulk_update("test_table", &updates, None).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[tokio::test]
+    async fn test_bulk_delete_not_connected() {
+        let adapter = OracleAdapter::new();
+        let where_clauses = vec!["id = 1".to_string()];
+        let result = adapter.bulk_delete("test_table", &where_clauses, None).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Connection(_)));
+    }
+
+    #[tokio::test]
+    async fn test_bulk_delete_empty_table_name() {
+        let adapter = OracleAdapter::new();
+        let where_clauses = vec!["id = 1".to_string()];
+        let result = adapter.bulk_delete("", &where_clauses, None).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
     }
 }
