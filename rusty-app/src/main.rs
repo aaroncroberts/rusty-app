@@ -25,6 +25,7 @@ use rusty_app::theme::ThemeColors;
 use rusty_app::views::{RegionId, ViewRegistry};
 use rusty_data::adapter::{ConnectionConfig, DatabaseType};
 use rusty_data::config::ConfigManager;
+use rusty_data::QueryResult;
 use std::collections::HashMap;
 use tracing::{info, warn};
 
@@ -107,6 +108,10 @@ struct DatabaseIDE {
     oracle_test_result: Option<Result<(), String>>,
     // Connection management
     connection_manager: ConnectionManager,
+    // Query execution
+    executing_query: bool,
+    query_results: HashMap<TabId, Option<QueryResult>>,
+    query_errors: HashMap<TabId, Option<String>>,
 }
 
 impl Default for DatabaseIDE {
@@ -292,6 +297,10 @@ impl Default for DatabaseIDE {
             oracle_test_result: None,
             // Connection management
             connection_manager: ConnectionManager::new(),
+            // Query execution
+            executing_query: false,
+            query_results: HashMap::new(),
+            query_errors: HashMap::new(),
         }
     }
 }
@@ -309,6 +318,7 @@ enum Message {
     MainTabClicked(TabId),
     MainTabClosed(TabId),
     QueryEditor(TabId, QueryEditorMessage),
+    QueryExecutionResult(TabId, Result<QueryResult, String>),
     NewConnection,
     ConnectionForm(ConnectionFormMessage),
     ConnectionTestResult(Result<(), String>),
@@ -512,17 +522,37 @@ impl DatabaseIDE {
                 self.main_panel.close_tab(id);
                 Task::none()
             }
-            Message::QueryEditor(_tab_id, query_msg) => {
+            Message::QueryEditor(tab_id, query_msg) => {
                 // Handle query editor messages
-                // For now, we just ignore them - will implement in task 4
                 match query_msg {
-                    QueryEditorMessage::ActionPerformed(_) => {
-                        // Text changed
+                    QueryEditorMessage::ActionPerformed(_action) => {
+                        // Text changed - no action needed
+                        Task::none()
                     }
                     QueryEditorMessage::Execute => {
-                        // Execute query - will be implemented in task 4
+                        // Execute query
+                        self.execute_query(tab_id)
                     }
                 }
+            }
+            Message::QueryExecutionResult(tab_id, result) => {
+                self.executing_query = false;
+
+                match result {
+                    Ok(query_result) => {
+                        // Store successful result
+                        self.query_results.insert(tab_id, Some(query_result));
+                        self.query_errors.insert(tab_id, None);
+                        info!("Query executed successfully for tab {}", tab_id);
+                    }
+                    Err(error) => {
+                        // Store error
+                        self.query_results.insert(tab_id, None);
+                        self.query_errors.insert(tab_id, Some(error.clone()));
+                        warn!("Query execution failed for tab {}: {}", tab_id, error);
+                    }
+                }
+
                 Task::none()
             }
             Message::NewConnection => {
@@ -1662,5 +1692,78 @@ impl DatabaseIDE {
 
     fn render_status_bar(&self) -> Element<'_, Message> {
         self.status_bar.view(self.connection_status)
+    }
+
+    /// Execute query for the given tab
+    fn execute_query(&mut self, tab_id: TabId) -> Task<Message> {
+        // Check if already executing
+        if self.executing_query {
+            warn!("Query execution already in progress");
+            return Task::none();
+        }
+
+        // Get query text from the editor
+        let query_text = match self.main_panel.get_query_text(tab_id) {
+            Some(text) => {
+                if text.trim().is_empty() {
+                    self.query_errors.insert(tab_id, Some("Query is empty".to_string()));
+                    return Task::none();
+                }
+                text
+            }
+            None => {
+                warn!("Tab {} not found or has no query editor", tab_id);
+                self.query_errors.insert(tab_id, Some("Query editor not found".to_string()));
+                return Task::none();
+            }
+        };
+
+        // Check if there's an active connection
+        let connection_id = match self.connection_manager.selected_id() {
+            Some(id) => id.to_string(),
+            None => {
+                // No active connection
+                self.query_errors.insert(tab_id, Some("No active database connection selected. Please connect to a database first.".to_string()));
+                return Task::none();
+            }
+        };
+
+        // Set executing flag
+        self.executing_query = true;
+        info!("Executing query for tab {} on connection {}", tab_id, connection_id);
+
+        // Execute query with timeout
+        // NOTE: This is a placeholder - actual implementation would need to:
+        // 1. Get the connection from connection_manager
+        // 2. Call execute_query on the adapter
+        // 3. Handle the result
+        // For now, we'll return a sample result to test the UI
+        Task::perform(
+            async move {
+                use std::time::Duration;
+
+                // Simulate query execution with timeout
+                tokio::time::sleep(Duration::from_millis(500)).await;
+
+                // Return a sample result for testing
+                Ok(QueryResult {
+                    columns: vec!["id".to_string(), "name".to_string(), "email".to_string()],
+                    rows: vec![
+                        vec![
+                            rusty_data::adapter::QueryValue::Int(1),
+                            rusty_data::adapter::QueryValue::Text("Alice".to_string()),
+                            rusty_data::adapter::QueryValue::Text("alice@example.com".to_string()),
+                        ],
+                        vec![
+                            rusty_data::adapter::QueryValue::Int(2),
+                            rusty_data::adapter::QueryValue::Text("Bob".to_string()),
+                            rusty_data::adapter::QueryValue::Text("bob@example.com".to_string()),
+                        ],
+                    ],
+                    rows_affected: Some(2),
+                })
+            },
+            move |result| Message::QueryExecutionResult(tab_id, result)
+        )
     }
 }

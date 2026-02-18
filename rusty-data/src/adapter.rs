@@ -86,7 +86,7 @@ impl fmt::Display for QueryValue {
 }
 
 /// Result of a query execution
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct QueryResult {
     pub columns: Vec<String>,
     pub rows: Vec<Vec<QueryValue>>,

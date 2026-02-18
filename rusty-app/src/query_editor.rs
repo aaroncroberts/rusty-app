@@ -8,7 +8,7 @@
 //! - Auto-indent on new line
 
 use crate::theme::ThemeColors;
-use iced::widget::{column, container, row, text, text_editor};
+use iced::widget::{button, column, container, row, text, text_editor};
 use iced::{Border, Element, Fill};
 
 /// Messages for the query editor
@@ -92,22 +92,46 @@ impl QueryEditor {
                 }
             });
 
-        // Toolbar with line count and execute button
+        // Toolbar with line count, execute button, and keyboard hint
         let line_count = self.content.line_count();
         let line_info = text(format!("{} line{}", line_count, if line_count == 1 { "" } else { "s" }))
             .size(12)
             .color(theme.text_secondary);
 
+        // Execute button
+        let execute_btn = button(
+            text("Execute")
+                .size(13)
+        )
+        .padding([6, 12])
+        .on_press(QueryEditorMessage::Execute)
+        .style(move |_theme, status| button::Style {
+            background: Some(theme.accent.into()),
+            text_color: theme.text,
+            border: Border {
+                color: if matches!(status, button::Status::Hovered) {
+                    theme.text
+                } else {
+                    theme.accent
+                },
+                width: 1.0,
+                radius: 4.0.into(),
+            },
+            ..Default::default()
+        });
+
         let toolbar = container(
             row![
                 line_info,
-                text("Press Ctrl+Enter to execute")
+                execute_btn,
+                text("Ctrl+Enter")
                     .size(12)
                     .color(theme.text_secondary),
             ]
-            .spacing(20)
+            .spacing(15)
+            .align_y(iced::Alignment::Center)
         )
-        .padding([4, 10])
+        .padding([6, 10])
         .width(Fill)
         .style(move |_theme| container::Style {
             background: Some(theme.background_secondary.into()),

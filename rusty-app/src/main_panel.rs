@@ -102,6 +102,11 @@ impl MainPanel {
         &self.tabs
     }
 
+    /// Get the query text for a specific tab
+    pub fn get_query_text(&self, tab_id: TabId) -> Option<String> {
+        self.query_editors.get(&tab_id).map(|editor| editor.text())
+    }
+
     /// Render the main panel component
     pub fn view<'a, Message: 'a + Clone>(
         &'a self,
