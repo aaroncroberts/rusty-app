@@ -1686,6 +1686,8 @@ impl DatabaseIDE {
                 Message::MainTabClicked,
                 Message::MainTabClosed,
                 Message::QueryEditor,
+                &self.query_results,
+                &self.query_errors,
             )
         }
     }

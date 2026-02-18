@@ -4,9 +4,11 @@
 //! displaying results, and interacting with the database.
 
 use crate::query_editor::QueryEditor;
+use crate::result_grid::ResultGrid;
 use crate::theme::ThemeColors;
 use iced::widget::{button, column, container, row, text};
 use iced::{Border, Element, Fill};
+use rusty_data::adapter::QueryResult;
 use std::collections::HashMap;
 
 /// Identifier for a tab
@@ -33,6 +35,7 @@ pub struct MainPanel {
     active_tab_id: Option<TabId>,
     next_tab_id: TabId,
     query_editors: HashMap<TabId, QueryEditor>,
+    result_grid: ResultGrid,
 }
 
 impl MainPanel {
@@ -44,6 +47,7 @@ impl MainPanel {
             active_tab_id: None,
             next_tab_id: 0,
             query_editors: HashMap::new(),
+            result_grid: ResultGrid::new(theme),
         }
     }
 
@@ -114,6 +118,8 @@ impl MainPanel {
         on_tab_click: impl Fn(TabId) -> Message + 'a,
         on_tab_close: impl Fn(TabId) -> Message + 'a,
         on_query_editor: impl Fn(TabId, crate::query_editor::QueryEditorMessage) -> Message + 'a + Copy,
+        query_results: &'a HashMap<TabId, Option<QueryResult>>,
+        query_errors: &'a HashMap<TabId, Option<String>>,
     ) -> Element<'a, Message> {
         let theme = self.theme;
         let on_new_tab_clone = on_new_tab.clone();
@@ -121,7 +127,7 @@ impl MainPanel {
         // Map query editor messages to the parent message type
         let tab_id = self.active_tab_id;
         let mapped_content = if let Some(id) = tab_id {
-            self.tab_content().map(move |msg| on_query_editor(id, msg))
+            self.tab_content(id, query_results, query_errors).map(move |msg| on_query_editor(id, msg))
         } else {
             // No active tab - show empty state
             container(
@@ -267,41 +273,39 @@ impl MainPanel {
     }
 
     /// Render the content area for the active tab
-    fn tab_content(&self) -> Element<crate::query_editor::QueryEditorMessage> {
+    fn tab_content<'a>(
+        &'a self,
+        tab_id: TabId,
+        query_results: &'a HashMap<TabId, Option<QueryResult>>,
+        query_errors: &'a HashMap<TabId, Option<String>>,
+    ) -> Element<'a, crate::query_editor::QueryEditorMessage> {
         let theme = self.theme;
 
-        if let Some(tab) = self.active_tab() {
-            // Display the query editor for this tab
-            if let Some(editor) = self.query_editors.get(&tab.id) {
-                editor.view()
-            } else {
-                // Editor not found (shouldn't happen)
-                container(
-                    text("Error: Query editor not found")
-                        .size(16)
-                        .color(theme.text_secondary)
-                )
-                .width(Fill)
-                .height(Fill)
-                .padding(20)
-                .style(move |_theme| container::Style {
-                    background: Some(theme.background.into()),
-                    ..Default::default()
-                })
-                .into()
-            }
-        } else {
-            // No active tab
+        // Display the query editor for this tab
+        if let Some(editor) = self.query_editors.get(&tab_id) {
+            // Get result and error for this tab - clone to owned values
+            let result_opt = query_results.get(&tab_id).cloned().flatten();
+            let error_opt = query_errors.get(&tab_id).cloned().flatten();
+
+            // Create a column with editor on top, result grid on bottom
+            let editor_view = editor.view();
+            let result_view: Element<'a, crate::query_editor::QueryEditorMessage> =
+                self.result_grid.view(result_opt, error_opt);
+
             container(
-                column![
-                    text("No tabs open")
-                        .size(16)
-                        .color(theme.text_secondary),
-                    text("Click + to create a new tab")
-                        .size(12)
-                        .color(theme.text_secondary),
-                ]
-                .spacing(10)
+                column![editor_view, result_view]
+                    .spacing(0)
+                    .height(Fill)
+            )
+            .width(Fill)
+            .height(Fill)
+            .into()
+        } else {
+            // Editor not found (shouldn't happen)
+            container(
+                text("Error: Query editor not found")
+                    .size(16)
+                    .color(theme.text_secondary)
             )
             .width(Fill)
             .height(Fill)

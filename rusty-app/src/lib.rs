@@ -13,6 +13,7 @@ pub mod mysql_connection_form;
 pub mod oracle_connection_form;
 pub mod postgres_connection_form;
 pub mod query_editor;
+pub mod result_grid;
 pub mod settings;
 pub mod settings_editor;
 pub mod sqlite_connection_form;
