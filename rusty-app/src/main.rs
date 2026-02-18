@@ -5,6 +5,7 @@ use iced::mouse;
 use rusty_app::adapter_selector::{AdapterSelector, AdapterSelectorMessage};
 use rusty_app::components::{ComponentAction, ComponentId, PropertiesComponent, ServerListComponent, TableListComponent};
 use rusty_app::connection_form::{ConnectionForm, ConnectionFormData, ConnectionFormMessage};
+use rusty_app::connection_manager::ConnectionManager;
 use rusty_app::container::ContainerManager;
 use rusty_app::container::converter::sync_connections_with_containers;
 use rusty_app::left_panel::{self, LeftPanel};
@@ -103,6 +104,8 @@ struct DatabaseIDE {
     oracle_form_data: OracleConnectionFormData,
     oracle_testing: bool,
     oracle_test_result: Option<Result<(), String>>,
+    // Connection management
+    connection_manager: ConnectionManager,
 }
 
 impl Default for DatabaseIDE {
@@ -286,6 +289,8 @@ impl Default for DatabaseIDE {
             oracle_form_data: OracleConnectionFormData::new(),
             oracle_testing: false,
             oracle_test_result: None,
+            // Connection management
+            connection_manager: ConnectionManager::new(),
         }
     }
 }
@@ -374,9 +379,37 @@ async fn test_database_connection(config: ConnectionConfig, password: Option<Str
             let adapter = adapters::sqlite::SqliteAdapter::new();
             adapter.test_connection(&config, password_ref).await
         }
-        DatabaseType::MongoDB | DatabaseType::SQLServer | DatabaseType::Oracle => {
+        #[cfg(feature = "mongodb")]
+        DatabaseType::MongoDB => {
+            let adapter = adapters::mongodb::MongoDbAdapter::new();
+            adapter.test_connection(&config, password_ref).await
+        }
+        #[cfg(feature = "mssql")]
+        DatabaseType::SQLServer => {
+            let adapter = adapters::mssql::MssqlAdapter::new();
+            adapter.test_connection(&config, password_ref).await
+        }
+        #[cfg(feature = "oracle")]
+        DatabaseType::Oracle => {
+            let adapter = adapters::oracle::OracleAdapter::new();
+            adapter.test_connection(&config, password_ref).await
+        }
+        #[cfg(not(feature = "mongodb"))]
+        DatabaseType::MongoDB => {
             Err(rusty_data::error::DataError::Config(
-                format!("Database type {:?} is not yet supported", config.db_type)
+                "MongoDB support not enabled. Rebuild with --features mongodb".to_string()
+            ))
+        }
+        #[cfg(not(feature = "mssql"))]
+        DatabaseType::SQLServer => {
+            Err(rusty_data::error::DataError::Config(
+                "SQL Server support not enabled. Rebuild with --features mssql".to_string()
+            ))
+        }
+        #[cfg(not(feature = "oracle"))]
+        DatabaseType::Oracle => {
+            Err(rusty_data::error::DataError::Config(
+                "Oracle support not enabled. Rebuild with --features oracle".to_string()
             ))
         }
     }

@@ -5,9 +5,18 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+default = ["postgres", "mysql", "sqlite", "mongodb", "mssql", "oracle"]
+postgres = ["rusty-data/postgres"]
+mysql = ["rusty-data/mysql"]
+sqlite = ["rusty-data/sqlite"]
+mongodb = ["rusty-data/mongodb"]
+mssql = ["rusty-data/mssql"]
+oracle = ["rusty-data/oracle"]
+
 [dependencies]
 # Internal dependencies
-rusty-data = { path = "../rusty-data", features = ["postgres", "mysql", "sqlite"] }
+rusty-data = { path = "../rusty-data", features = ["postgres", "mysql", "sqlite", "mongodb", "mssql", "oracle"] }
 rusty-logging = { path = "../rusty-logging" }
 
 # Logging (for tracing macros)
