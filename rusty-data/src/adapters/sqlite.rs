@@ -20,6 +20,47 @@ impl SqliteAdapter {
         Self { pool: None }
     }
 
+    /// Validate database path
+    fn validate_database_path(path: &str) -> Result<()> {
+        if path.is_empty() {
+            return Err(DataError::Config("Database path cannot be empty".to_string()));
+        }
+        // Allow :memory: for in-memory databases
+        if path == ":memory:" {
+            return Ok(());
+        }
+        // Check for path length limits
+        if path.len() > 4096 {
+            return Err(DataError::Config(format!(
+                "Database path too long (max 4096 chars): {}",
+                path.len()
+            )));
+        }
+        Ok(())
+    }
+
+    /// Validate table name
+    fn validate_table_name(name: &str) -> Result<()> {
+        if name.is_empty() {
+            return Err(DataError::Config("Table name cannot be empty".to_string()));
+        }
+        if name.len() > 255 {
+            return Err(DataError::Config(format!(
+                "Table name too long (max 255 chars): {}",
+                name.len()
+            )));
+        }
+        Ok(())
+    }
+
+    /// Validate query
+    fn validate_query(query: &str) -> Result<()> {
+        if query.trim().is_empty() {
+            return Err(DataError::Config("Query cannot be empty".to_string()));
+        }
+        Ok(())
+    }
+
     /// Build a connection string from configuration
     fn build_connection_string(config: &ConnectionConfig) -> String {
         // For SQLite, the database field contains the file path
@@ -126,7 +167,14 @@ impl DatabaseAdapter for SqliteAdapter {
             )));
         }
 
-        info!("Connecting to SQLite database");
+        Self::validate_database_path(&config.database)?;
+
+        let database_path = &config.database;
+        info!(
+            database_path = %database_path,
+            "Connecting to SQLite database"
+        );
+        let start = std::time::Instant::now();
         let connection_string = Self::build_connection_string(config);
 
         let pool = SqlitePoolOptions::new()
@@ -134,12 +182,67 @@ impl DatabaseAdapter for SqliteAdapter {
             .connect(&connection_string)
             .await
             .map_err(|e| {
-                warn!(error = %e, "Failed to connect to SQLite");
-                DataError::Connection(format!("Failed to connect: {}", e))
+                let elapsed = start.elapsed();
+                let error_msg = e.to_string();
+
+                // Categorize SQLite connection errors
+                let error_category = if error_msg.contains("unable to open database file") || error_msg.contains("Permission denied") {
+                    "permission"
+                } else if error_msg.contains("disk I/O error") || error_msg.contains("disk full") {
+                    "disk_io"
+                } else if error_msg.contains("not a database") || error_msg.contains("file is not a database") {
+                    "corrupt"
+                } else if error_msg.contains("database is locked") {
+                    "locked"
+                } else {
+                    "unknown"
+                };
+
+                warn!(
+                    error = %e,
+                    error_category = %error_category,
+                    elapsed_ms = elapsed.as_millis(),
+                    "Failed to connect to SQLite"
+                );
+
+                if error_msg.contains("unable to open database file") || error_msg.contains("Permission denied") {
+                    DataError::Connection(format!(
+                        "Permission denied or file not accessible: '{}' - {}",
+                        database_path, e
+                    ))
+                } else if error_msg.contains("disk I/O error") || error_msg.contains("disk full") {
+                    DataError::Connection(format!(
+                        "Disk I/O error for database '{}' - {}",
+                        database_path, e
+                    ))
+                } else if error_msg.contains("not a database") || error_msg.contains("file is not a database") {
+                    DataError::Connection(format!(
+                        "Invalid or corrupt database file: '{}' - {}",
+                        database_path, e
+                    ))
+                } else if error_msg.contains("database is locked") {
+                    DataError::Connection(format!(
+                        "Database '{}' is locked by another process - {}",
+                        database_path, e
+                    ))
+                } else {
+                    DataError::Connection(format!(
+                        "Failed to connect to database '{}' - {}",
+                        database_path, e
+                    ))
+                }
             })?;
 
+        let elapsed = start.elapsed();
+        let pool_size = pool.size();
         self.pool = Some(pool);
-        info!("Successfully connected to SQLite");
+
+        info!(
+            max_connections = 5,
+            current_size = pool_size,
+            elapsed_ms = elapsed.as_millis(),
+            "Successfully connected to SQLite"
+        );
         Ok(())
     }
 
@@ -158,18 +261,84 @@ impl DatabaseAdapter for SqliteAdapter {
 
     #[instrument(skip(self, query), fields(query_len = query.len()))]
     async fn execute_query(&self, query: &str) -> Result<QueryResult> {
-        debug!("Executing query");
+        Self::validate_query(query)?;
+
         let pool = self
             .pool
             .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected".to_string()))?;
 
+        let query_snippet = if query.len() > 100 {
+            format!("{}...", &query[..100])
+        } else {
+            query.to_string()
+        };
+
+        debug!(
+            query_snippet = %query_snippet,
+            pool_size = pool.size(),
+            "Executing SQLite query"
+        );
+        let start = std::time::Instant::now();
+
         let rows = sqlx::query(query)
             .fetch_all(pool)
             .await
-            .map_err(|e| DataError::Query(format!("Query failed: {}", e)))?;
+            .map_err(|e| {
+                let elapsed = start.elapsed();
+                let error_msg = e.to_string();
+
+                // Categorize SQLite query errors
+                let error_category = if error_msg.contains("syntax error") || error_msg.contains("near") {
+                    "syntax"
+                } else if error_msg.contains("no such table") || error_msg.contains("no such column") {
+                    "object_not_found"
+                } else if error_msg.contains("UNIQUE constraint failed") {
+                    "unique_constraint"
+                } else if error_msg.contains("FOREIGN KEY constraint failed") {
+                    "foreign_key_constraint"
+                } else if error_msg.contains("NOT NULL constraint failed") {
+                    "not_null_constraint"
+                } else if error_msg.contains("CHECK constraint failed") {
+                    "check_constraint"
+                } else {
+                    "unknown"
+                };
+
+                warn!(
+                    error = %e,
+                    error_category = %error_category,
+                    query_snippet = %query_snippet,
+                    elapsed_ms = elapsed.as_millis(),
+                    "Query execution failed"
+                );
+
+                if error_msg.contains("syntax error") || error_msg.contains("near") {
+                    DataError::Query(format!("SQL syntax error: {} - Query: {}", e, query))
+                } else if error_msg.contains("no such table") || error_msg.contains("no such column") {
+                    DataError::Query(format!("Table or column not found: {} - Query: {}", e, query))
+                } else if error_msg.contains("UNIQUE constraint failed") {
+                    DataError::Query(format!("Unique constraint violation: {} - Query: {}", e, query))
+                } else if error_msg.contains("FOREIGN KEY constraint failed") {
+                    DataError::Query(format!("Foreign key constraint violation: {} - Query: {}", e, query))
+                } else if error_msg.contains("NOT NULL constraint failed") {
+                    DataError::Query(format!("Not null constraint violation: {} - Query: {}", e, query))
+                } else if error_msg.contains("CHECK constraint failed") {
+                    DataError::Query(format!("Check constraint violation: {} - Query: {}", e, query))
+                } else {
+                    DataError::Query(format!("Query failed: {} - Query: {}", e, query))
+                }
+            })?;
+
+        let fetch_elapsed = start.elapsed();
 
         if rows.is_empty() {
+            info!(
+                rows_count = 0,
+                columns_count = 0,
+                elapsed_ms = fetch_elapsed.as_millis(),
+                "Query executed successfully (no results)"
+            );
             return Ok(QueryResult {
                 columns: vec![],
                 rows: vec![],
@@ -183,11 +352,22 @@ impl DatabaseAdapter for SqliteAdapter {
             .map(|col| col.name().to_string())
             .collect();
 
+        let column_count = columns.len();
         let mut result_rows = Vec::new();
         for row in &rows {
             let values = Self::row_to_values(row)?;
             result_rows.push(values);
         }
+        let row_count = result_rows.len();
+
+        let total_elapsed = start.elapsed();
+        info!(
+            rows_count = row_count,
+            columns_count = column_count,
+            fetch_ms = fetch_elapsed.as_millis(),
+            total_ms = total_elapsed.as_millis(),
+            "Query executed successfully"
+        );
 
         Ok(QueryResult {
             columns,
@@ -245,6 +425,8 @@ impl DatabaseAdapter for SqliteAdapter {
 
     #[instrument(skip(self), fields(table = %table_name))]
     async fn describe_table(&self, table_name: &str, _schema: Option<&str>) -> Result<TableInfo> {
+        Self::validate_table_name(table_name)?;
+
         let pool = self
             .pool
             .as_ref()
@@ -880,5 +1062,98 @@ mod tests {
 
         let result = adapter.test_connection(&config, None).await.unwrap();
         assert!(result);
+    }
+
+    // ===== Validation Tests =====
+
+    #[test]
+    fn test_validate_database_path_valid() {
+        assert!(SqliteAdapter::validate_database_path("/tmp/test.db").is_ok());
+        assert!(SqliteAdapter::validate_database_path("data/mydb.sqlite").is_ok());
+        assert!(SqliteAdapter::validate_database_path(":memory:").is_ok());
+    }
+
+    #[test]
+    fn test_validate_database_path_empty() {
+        let result = SqliteAdapter::validate_database_path("");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[test]
+    fn test_validate_database_path_too_long() {
+        let long_path = format!("/tmp/{}.db", "a".repeat(1000));
+        let result = SqliteAdapter::validate_database_path(&long_path);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[test]
+    fn test_validate_table_name_valid() {
+        assert!(SqliteAdapter::validate_table_name("users").is_ok());
+        assert!(SqliteAdapter::validate_table_name("order_items").is_ok());
+    }
+
+    #[test]
+    fn test_validate_table_name_empty() {
+        let result = SqliteAdapter::validate_table_name("");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[test]
+    fn test_validate_query_valid() {
+        assert!(SqliteAdapter::validate_query("SELECT * FROM users").is_ok());
+        assert!(SqliteAdapter::validate_query("INSERT INTO users VALUES (1)").is_ok());
+    }
+
+    #[test]
+    fn test_validate_query_empty() {
+        let result = SqliteAdapter::validate_query("");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[test]
+    fn test_validate_query_whitespace_only() {
+        let result = SqliteAdapter::validate_query("   \n\t  ");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    // ===== QueryValue Display Tests =====
+
+    #[test]
+    fn test_query_value_display_null() {
+        assert_eq!(QueryValue::Null.to_string(), "NULL");
+    }
+
+    #[test]
+    fn test_query_value_display_bool() {
+        assert_eq!(QueryValue::Bool(true).to_string(), "true");
+        assert_eq!(QueryValue::Bool(false).to_string(), "false");
+    }
+
+    #[test]
+    fn test_query_value_display_int() {
+        assert_eq!(QueryValue::Int(42).to_string(), "42");
+        assert_eq!(QueryValue::Int(-100).to_string(), "-100");
+    }
+
+    #[test]
+    fn test_query_value_display_float() {
+        assert_eq!(QueryValue::Float(3.14).to_string(), "3.14");
+        assert_eq!(QueryValue::Float(-2.5).to_string(), "-2.5");
+    }
+
+    #[test]
+    fn test_query_value_display_text() {
+        assert_eq!(QueryValue::Text("hello".to_string()).to_string(), "hello");
+    }
+
+    #[test]
+    fn test_query_value_display_bytes() {
+        let bytes = vec![1, 2, 3, 4, 5];
+        assert_eq!(QueryValue::Bytes(bytes).to_string(), "<5 bytes>");
     }
 }

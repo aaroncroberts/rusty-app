@@ -212,7 +212,13 @@ impl DatabaseAdapter for MySqlAdapter {
         let port = config.port.unwrap_or(3306);
         let database = &config.database;
 
-        info!("Connecting to MySQL database");
+        info!(
+            database = %database,
+            host = %host,
+            port = %port,
+            "Connecting to MySQL database"
+        );
+        let start = std::time::Instant::now();
         let connection_string = Self::build_connection_string(config, password)?;
 
         let pool = MySqlPoolOptions::new()
@@ -220,9 +226,27 @@ impl DatabaseAdapter for MySqlAdapter {
             .connect(&connection_string)
             .await
             .map_err(|e| {
-                warn!(error = %e, "Failed to connect to MySQL");
+                let elapsed = start.elapsed();
                 let error_msg = e.to_string();
+
                 // Categorize connection errors
+                let error_category = if error_msg.contains("Access denied") || error_msg.contains("authentication") {
+                    "authentication"
+                } else if error_msg.contains("Connection refused") || error_msg.contains("Can't connect") {
+                    "network"
+                } else if error_msg.contains("Unknown database") {
+                    "database_not_found"
+                } else {
+                    "unknown"
+                };
+
+                warn!(
+                    error = %e,
+                    error_category = %error_category,
+                    elapsed_ms = elapsed.as_millis(),
+                    "Failed to connect to MySQL"
+                );
+
                 if error_msg.contains("Access denied") || error_msg.contains("authentication") {
                     DataError::Connection(format!(
                         "Authentication failed for database '{}' at {}:{} - {}",
@@ -246,8 +270,16 @@ impl DatabaseAdapter for MySqlAdapter {
                 }
             })?;
 
+        let elapsed = start.elapsed();
+        let pool_size = pool.size();
         self.pool = Some(pool);
-        info!("Successfully connected to MySQL");
+
+        info!(
+            max_connections = 5,
+            current_size = pool_size,
+            elapsed_ms = elapsed.as_millis(),
+            "Successfully connected to MySQL"
+        );
         Ok(())
     }
 
@@ -266,8 +298,6 @@ impl DatabaseAdapter for MySqlAdapter {
 
     #[instrument(skip(self, query), fields(query_len = query.len()))]
     async fn execute_query(&self, query: &str) -> Result<QueryResult> {
-        debug!("Executing query");
-
         // Validate query
         Self::validate_query(query)?;
 
@@ -282,11 +312,40 @@ impl DatabaseAdapter for MySqlAdapter {
             query.to_string()
         };
 
+        debug!(
+            query_snippet = %query_snippet,
+            pool_size = pool.size(),
+            "Executing MySQL query"
+        );
+        let start = std::time::Instant::now();
+
         let rows = sqlx::query(query)
             .fetch_all(pool)
             .await
             .map_err(|e| {
+                let elapsed = start.elapsed();
                 let error_msg = e.to_string();
+
+                let error_category = if error_msg.contains("syntax") {
+                    "syntax"
+                } else if error_msg.contains("Access denied") || error_msg.contains("permission") {
+                    "permission"
+                } else if error_msg.contains("doesn't exist") || error_msg.contains("Unknown") {
+                    "object_not_found"
+                } else if error_msg.contains("Duplicate") || error_msg.contains("constraint") {
+                    "constraint"
+                } else {
+                    "unknown"
+                };
+
+                warn!(
+                    error = %e,
+                    error_category = %error_category,
+                    query_snippet = %query_snippet,
+                    elapsed_ms = elapsed.as_millis(),
+                    "Query execution failed"
+                );
+
                 if error_msg.contains("syntax") {
                     DataError::Query(format!("SQL syntax error: {} - {}", query_snippet, e))
                 } else if error_msg.contains("Access denied") || error_msg.contains("permission") {
@@ -300,7 +359,15 @@ impl DatabaseAdapter for MySqlAdapter {
                 }
             })?;
 
+        let fetch_elapsed = start.elapsed();
+
         if rows.is_empty() {
+            info!(
+                rows_count = 0,
+                columns_count = 0,
+                elapsed_ms = fetch_elapsed.as_millis(),
+                "Query executed successfully (no results)"
+            );
             return Ok(QueryResult {
                 columns: vec![],
                 rows: vec![],
@@ -314,11 +381,22 @@ impl DatabaseAdapter for MySqlAdapter {
             .map(|col| col.name().to_string())
             .collect();
 
+        let column_count = columns.len();
         let mut result_rows = Vec::new();
         for row in &rows {
             let values = Self::row_to_values(row)?;
             result_rows.push(values);
         }
+        let row_count = result_rows.len();
+
+        let total_elapsed = start.elapsed();
+        info!(
+            rows_count = row_count,
+            columns_count = column_count,
+            fetch_ms = fetch_elapsed.as_millis(),
+            total_ms = total_elapsed.as_millis(),
+            "Query executed successfully"
+        );
 
         Ok(QueryResult {
             columns,
@@ -372,6 +450,8 @@ impl DatabaseAdapter for MySqlAdapter {
 
     #[instrument(skip(self), fields(table = %table_name))]
     async fn describe_table(&self, table_name: &str, _schema: Option<&str>) -> Result<TableInfo> {
+        Self::validate_table_name(table_name)?;
+
         let pool = self
             .pool
             .as_ref()
@@ -537,6 +617,7 @@ impl DatabaseAdapter for MySqlAdapter {
 
     #[instrument(skip(self), fields(table = %table_name))]
     async fn get_table_metadata(&self, table_name: &str, _schema: Option<&str>) -> Result<TableMetadata> {
+        Self::validate_table_name(table_name)?;
 
         info!("Retrieving metadata for table: {}", table_name);
 
@@ -573,6 +654,8 @@ impl DatabaseAdapter for MySqlAdapter {
 
     #[instrument(skip(self), fields(table = %table_name))]
     async fn get_indexes(&self, table_name: &str, _schema: Option<&str>) -> Result<Vec<IndexInfo>> {
+        Self::validate_table_name(table_name)?;
+
         info!("Retrieving indexes for table: {}", table_name);
 
         let pool = self.pool.as_ref()
@@ -620,6 +703,8 @@ impl DatabaseAdapter for MySqlAdapter {
 
     #[instrument(skip(self), fields(table = %table_name))]
     async fn get_foreign_keys(&self, table_name: &str, _schema: Option<&str>) -> Result<Vec<ForeignKeyInfo>> {
+        Self::validate_table_name(table_name)?;
+
         info!("Retrieving foreign keys for table: {}", table_name);
 
         let pool = self.pool.as_ref()
@@ -883,5 +968,111 @@ mod tests {
         let result = adapter.connect(&config, Some("password")).await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    // ===== Validation Tests =====
+
+    #[test]
+    fn test_validate_database_name_valid() {
+        assert!(MySqlAdapter::validate_database_name("testdb").is_ok());
+        assert!(MySqlAdapter::validate_database_name("my_database_123").is_ok());
+    }
+
+    #[test]
+    fn test_validate_database_name_empty() {
+        let result = MySqlAdapter::validate_database_name("");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[test]
+    fn test_validate_database_name_too_long() {
+        let long_name = "a".repeat(65);
+        let result = MySqlAdapter::validate_database_name(&long_name);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[test]
+    fn test_validate_database_name_max_length() {
+        let max_name = "a".repeat(64);
+        assert!(MySqlAdapter::validate_database_name(&max_name).is_ok());
+    }
+
+    #[test]
+    fn test_validate_table_name_valid() {
+        assert!(MySqlAdapter::validate_table_name("users").is_ok());
+        assert!(MySqlAdapter::validate_table_name("order_items").is_ok());
+    }
+
+    #[test]
+    fn test_validate_table_name_empty() {
+        let result = MySqlAdapter::validate_table_name("");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[test]
+    fn test_validate_table_name_too_long() {
+        let long_name = "t".repeat(65);
+        let result = MySqlAdapter::validate_table_name(&long_name);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[test]
+    fn test_validate_query_valid() {
+        assert!(MySqlAdapter::validate_query("SELECT * FROM users").is_ok());
+        assert!(MySqlAdapter::validate_query("INSERT INTO users VALUES (1)").is_ok());
+    }
+
+    #[test]
+    fn test_validate_query_empty() {
+        let result = MySqlAdapter::validate_query("");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[test]
+    fn test_validate_query_whitespace_only() {
+        let result = MySqlAdapter::validate_query("   \n\t  ");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    // ===== QueryValue Display Tests =====
+
+    #[test]
+    fn test_query_value_display_null() {
+        assert_eq!(QueryValue::Null.to_string(), "NULL");
+    }
+
+    #[test]
+    fn test_query_value_display_bool() {
+        assert_eq!(QueryValue::Bool(true).to_string(), "true");
+        assert_eq!(QueryValue::Bool(false).to_string(), "false");
+    }
+
+    #[test]
+    fn test_query_value_display_int() {
+        assert_eq!(QueryValue::Int(42).to_string(), "42");
+        assert_eq!(QueryValue::Int(-100).to_string(), "-100");
+    }
+
+    #[test]
+    fn test_query_value_display_float() {
+        assert_eq!(QueryValue::Float(3.14).to_string(), "3.14");
+        assert_eq!(QueryValue::Float(-2.5).to_string(), "-2.5");
+    }
+
+    #[test]
+    fn test_query_value_display_text() {
+        assert_eq!(QueryValue::Text("hello".to_string()).to_string(), "hello");
+    }
+
+    #[test]
+    fn test_query_value_display_bytes() {
+        let bytes = vec![1, 2, 3, 4, 5];
+        assert_eq!(QueryValue::Bytes(bytes).to_string(), "<5 bytes>");
     }
 }

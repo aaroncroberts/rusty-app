@@ -23,6 +23,42 @@ impl MssqlAdapter {
         Self { pool: None }
     }
 
+    /// Validate database name
+    fn validate_database_name(name: &str) -> Result<()> {
+        if name.is_empty() {
+            return Err(DataError::Config("Database name cannot be empty".to_string()));
+        }
+        if name.len() > 128 {
+            return Err(DataError::Config(format!(
+                "Database name too long (max 128 chars): {}",
+                name.len()
+            )));
+        }
+        Ok(())
+    }
+
+    /// Validate table name
+    fn validate_table_name(name: &str) -> Result<()> {
+        if name.is_empty() {
+            return Err(DataError::Config("Table name cannot be empty".to_string()));
+        }
+        if name.len() > 128 {
+            return Err(DataError::Config(format!(
+                "Table name too long (max 128 chars): {}",
+                name.len()
+            )));
+        }
+        Ok(())
+    }
+
+    /// Validate query
+    fn validate_query(query: &str) -> Result<()> {
+        if query.trim().is_empty() {
+            return Err(DataError::Config("Query cannot be empty".to_string()));
+        }
+        Ok(())
+    }
+
     /// Build a tiberius config from connection configuration
     fn build_config(config: &ConnectionConfig, password: Option<&str>) -> Result<Config> {
         let host = config.host.as_deref().unwrap_or("localhost");
@@ -100,25 +136,103 @@ impl DatabaseAdapter for MssqlAdapter {
             )));
         }
 
-        info!("Connecting to SQL Server database");
+        Self::validate_database_name(&config.database)?;
+
+        let host = config.host.as_deref().unwrap_or("localhost");
+        let port = config.port.unwrap_or(1433);
+        let database = &config.database;
+
+        info!(
+            database = %database,
+            host = %host,
+            port = %port,
+            "Connecting to SQL Server database"
+        );
+        let start = std::time::Instant::now();
         let tiberius_config = Self::build_config(config, password)?;
 
         let tcp = TcpStream::connect(tiberius_config.get_addr())
             .await
             .map_err(|e| {
-                warn!(error = %e, "Failed to connect to SQL Server");
-                DataError::Connection(format!("Failed to connect: {}", e))
+                let elapsed = start.elapsed();
+                let error_msg = e.to_string();
+                let error_category = if error_msg.contains("Connection refused") {
+                    "network"
+                } else if error_msg.contains("No route to host") || error_msg.contains("timeout") {
+                    "timeout"
+                } else {
+                    "unknown"
+                };
+
+                warn!(
+                    error = %e,
+                    error_category = %error_category,
+                    elapsed_ms = elapsed.as_millis(),
+                    "Failed to connect to SQL Server"
+                );
+
+                if error_msg.contains("Connection refused") {
+                    DataError::Connection(format!(
+                        "Network error connecting to SQL Server at {}:{} - {}",
+                        host, port, e
+                    ))
+                } else if error_msg.contains("No route to host") || error_msg.contains("timeout") {
+                    DataError::Connection(format!(
+                        "Network timeout or unreachable host {}:{} - {}",
+                        host, port, e
+                    ))
+                } else {
+                    DataError::Connection(format!(
+                        "Failed to connect to SQL Server at {}:{} - {}",
+                        host, port, e
+                    ))
+                }
             })?;
 
         let client = Client::connect(tiberius_config, tcp.compat_write())
             .await
             .map_err(|e| {
-                warn!(error = %e, "Failed to authenticate with SQL Server");
-                DataError::Connection(format!("Failed to connect: {}", e))
+                let elapsed = start.elapsed();
+                let error_msg = e.to_string();
+                let error_category = if error_msg.contains("Login failed") || error_msg.contains("authentication") {
+                    "authentication"
+                } else if error_msg.contains("Cannot open database") || error_msg.contains("does not exist") {
+                    "database_not_found"
+                } else {
+                    "unknown"
+                };
+
+                warn!(
+                    error = %e,
+                    error_category = %error_category,
+                    elapsed_ms = elapsed.as_millis(),
+                    "Failed to authenticate with SQL Server"
+                );
+
+                if error_msg.contains("Login failed") || error_msg.contains("authentication") {
+                    DataError::Connection(format!(
+                        "Authentication failed for database '{}' at {}:{} - {}",
+                        database, host, port, e
+                    ))
+                } else if error_msg.contains("Cannot open database") || error_msg.contains("does not exist") {
+                    DataError::Connection(format!(
+                        "Database '{}' does not exist at {}:{}",
+                        database, host, port
+                    ))
+                } else {
+                    DataError::Connection(format!(
+                        "Failed to connect to database '{}' at {}:{} - {}",
+                        database, host, port, e
+                    ))
+                }
             })?;
 
+        let elapsed = start.elapsed();
         self.pool = Some(Pool::new(client));
-        info!("Successfully connected to SQL Server");
+        info!(
+            elapsed_ms = elapsed.as_millis(),
+            "Successfully connected to SQL Server"
+        );
         Ok(())
     }
 
@@ -137,16 +251,71 @@ impl DatabaseAdapter for MssqlAdapter {
 
     #[instrument(skip(self, query), fields(query_len = query.len()))]
     async fn execute_query(&self, query: &str) -> Result<QueryResult> {
+        Self::validate_query(query)?;
+
         let pool = self.pool.as_ref().ok_or_else(|| {
             DataError::Connection("Not connected to database".to_string())
         })?;
 
+        let query_snippet = if query.len() > 100 {
+            format!("{}...", &query[..100])
+        } else {
+            query.to_string()
+        };
+
+        debug!(
+            query_snippet = %query_snippet,
+            "Executing SQL Server query"
+        );
+        let start = std::time::Instant::now();
+
         let mut client = pool.lock().await;
-        
+
         // Execute the query
         let mut result = client.query(query, &[]).await.map_err(|e| {
-            warn!(error = %e, "Query execution failed");
-            DataError::Query(format!("Query failed: {}", e))
+            let elapsed = start.elapsed();
+            let error_msg = e.to_string();
+
+            // Categorize SQL Server query errors
+            let error_category = if error_msg.contains("Incorrect syntax") || error_msg.contains("syntax error") {
+                "syntax"
+            } else if error_msg.contains("Invalid object name") || error_msg.contains("does not exist") {
+                "object_not_found"
+            } else if error_msg.contains("UNIQUE constraint") || error_msg.contains("duplicate key") {
+                "unique_constraint"
+            } else if error_msg.contains("FOREIGN KEY constraint") {
+                "foreign_key_constraint"
+            } else if error_msg.contains("CHECK constraint") {
+                "check_constraint"
+            } else if error_msg.contains("Cannot insert NULL") || error_msg.contains("NOT NULL") {
+                "not_null_constraint"
+            } else {
+                "unknown"
+            };
+
+            warn!(
+                error = %e,
+                error_category = %error_category,
+                query_snippet = %query_snippet,
+                elapsed_ms = elapsed.as_millis(),
+                "Query execution failed"
+            );
+
+            if error_msg.contains("Incorrect syntax") || error_msg.contains("syntax error") {
+                DataError::Query(format!("SQL syntax error: {} - Query: {}", e, query))
+            } else if error_msg.contains("Invalid object name") || error_msg.contains("does not exist") {
+                DataError::Query(format!("Table or column not found: {} - Query: {}", e, query))
+            } else if error_msg.contains("UNIQUE constraint") || error_msg.contains("duplicate key") {
+                DataError::Query(format!("Unique constraint violation: {} - Query: {}", e, query))
+            } else if error_msg.contains("FOREIGN KEY constraint") {
+                DataError::Query(format!("Foreign key constraint violation: {} - Query: {}", e, query))
+            } else if error_msg.contains("CHECK constraint") {
+                DataError::Query(format!("Check constraint violation: {} - Query: {}", e, query))
+            } else if error_msg.contains("Cannot insert NULL") || error_msg.contains("NOT NULL") {
+                DataError::Query(format!("Not null constraint violation: {} - Query: {}", e, query))
+            } else {
+                DataError::Query(format!("Query failed: {} - Query: {}", e, query))
+            }
         })?;
 
         // Get column information from the first result set
@@ -187,6 +356,14 @@ impl DatabaseAdapter for MssqlAdapter {
         } else {
             Some(row_count)
         };
+
+        let total_elapsed = start.elapsed();
+        info!(
+            rows_count = rows.len(),
+            columns_count = columns.len(),
+            total_ms = total_elapsed.as_millis(),
+            "Query executed successfully"
+        );
 
         Ok(QueryResult {
             columns,
@@ -245,6 +422,8 @@ impl DatabaseAdapter for MssqlAdapter {
 
     #[instrument(skip(self), fields(table = %table_name))]
     async fn describe_table(&self, table_name: &str, schema: Option<&str>) -> Result<TableInfo> {
+        Self::validate_table_name(table_name)?;
+
         let schema_name = schema.unwrap_or("dbo");
         let query = format!(
             "SELECT
@@ -411,7 +590,7 @@ impl DatabaseAdapter for MssqlAdapter {
         let mut size_bytes = None;
         let mut owner = None;
         let mut encoding = None;
-        let mut created_at = None;
+        let created_at = None;
         let mut extra_info = std::collections::HashMap::new();
 
         while let Some(item) = stream.try_next().await
@@ -447,6 +626,8 @@ impl DatabaseAdapter for MssqlAdapter {
 
     #[instrument(skip(self), fields(table = %table_name))]
     async fn get_table_metadata(&self, table_name: &str, schema: Option<&str>) -> Result<TableMetadata> {
+        Self::validate_table_name(table_name)?;
+
         info!("Retrieving metadata for table: {}", table_name);
 
         let schema_name = schema.unwrap_or("dbo");
@@ -506,6 +687,8 @@ impl DatabaseAdapter for MssqlAdapter {
 
     #[instrument(skip(self), fields(table = %table_name))]
     async fn get_indexes(&self, table_name: &str, schema: Option<&str>) -> Result<Vec<IndexInfo>> {
+        Self::validate_table_name(table_name)?;
+
         info!("Retrieving indexes for table: {}", table_name);
 
         let schema_name = schema.unwrap_or("dbo");
@@ -570,6 +753,8 @@ impl DatabaseAdapter for MssqlAdapter {
 
     #[instrument(skip(self), fields(table = %table_name))]
     async fn get_foreign_keys(&self, table_name: &str, schema: Option<&str>) -> Result<Vec<ForeignKeyInfo>> {
+        Self::validate_table_name(table_name)?;
+
         info!("Retrieving foreign keys for table: {}", table_name);
 
         let schema_name = schema.unwrap_or("dbo");
@@ -830,5 +1015,47 @@ mod tests {
         let result = adapter.connect(&config, Some("password")).await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    // ===== Validation Tests =====
+    #[test]
+    fn test_validate_database_name_valid() {
+        assert!(MssqlAdapter::validate_database_name("testdb").is_ok());
+    }
+
+    #[test]
+    fn test_validate_database_name_empty() {
+        assert!(MssqlAdapter::validate_database_name("").is_err());
+    }
+
+    #[test]
+    fn test_validate_table_name_valid() {
+        assert!(MssqlAdapter::validate_table_name("users").is_ok());
+    }
+
+    #[test]
+    fn test_validate_table_name_empty() {
+        assert!(MssqlAdapter::validate_table_name("").is_err());
+    }
+
+    #[test]
+    fn test_validate_query_valid() {
+        assert!(MssqlAdapter::validate_query("SELECT * FROM users").is_ok());
+    }
+
+    #[test]
+    fn test_validate_query_empty() {
+        assert!(MssqlAdapter::validate_query("").is_err());
+    }
+
+    // ===== QueryValue Display Tests =====
+    #[test]
+    fn test_query_value_display() {
+        assert_eq!(QueryValue::Null.to_string(), "NULL");
+        assert_eq!(QueryValue::Bool(true).to_string(), "true");
+        assert_eq!(QueryValue::Int(42).to_string(), "42");
+        assert_eq!(QueryValue::Float(3.14).to_string(), "3.14");
+        assert_eq!(QueryValue::Text("hello".to_string()).to_string(), "hello");
+        assert_eq!(QueryValue::Bytes(vec![1, 2, 3]).to_string(), "<3 bytes>");
     }
 }

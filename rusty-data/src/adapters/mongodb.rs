@@ -27,6 +27,56 @@ impl MongoDbAdapter {
         }
     }
 
+    /// Validate database name
+    fn validate_database_name(name: &str) -> Result<()> {
+        if name.is_empty() {
+            return Err(DataError::Config("Database name cannot be empty".to_string()));
+        }
+        // MongoDB database names have specific restrictions
+        if name.len() > 64 {
+            return Err(DataError::Config(format!(
+                "Database name too long (max 64 chars): {}",
+                name.len()
+            )));
+        }
+        // Check for invalid characters
+        for c in ['/','\\', '.', ' ', '"', '$', '*', '<', '>', ':', '|', '?'] {
+            if name.contains(c) {
+                return Err(DataError::Config(format!(
+                    "Database name contains invalid character '{}': {}",
+                    c, name
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Validate collection name (MongoDB's equivalent of table)
+    fn validate_collection_name(name: &str) -> Result<()> {
+        if name.is_empty() {
+            return Err(DataError::Config("Collection name cannot be empty".to_string()));
+        }
+        if name.starts_with("system.") {
+            return Err(DataError::Config(format!(
+                "Collection name cannot start with 'system.': {}",
+                name
+            )));
+        }
+        if name.contains('$') && !name.starts_with("oplog.$") {
+            return Err(DataError::Config(format!(
+                "Collection name contains invalid character '$': {}",
+                name
+            )));
+        }
+        if name.contains('\0') {
+            return Err(DataError::Config(format!(
+                "Collection name contains null character: {}",
+                name
+            )));
+        }
+        Ok(())
+    }
+
     /// Build a connection string from configuration
     fn build_connection_string(config: &ConnectionConfig, password: Option<&str>) -> String {
         let host = config.host.as_deref().unwrap_or("localhost");
@@ -81,34 +131,113 @@ impl DatabaseAdapter for MongoDbAdapter {
             )));
         }
 
-        info!("Connecting to MongoDB database");
+        Self::validate_database_name(&config.database)?;
+
+        let host = config.host.as_deref().unwrap_or("localhost");
+        let port = config.port.unwrap_or(27017);
+        let database = &config.database;
+
+        info!(
+            database = %database,
+            host = %host,
+            port = %port,
+            "Connecting to MongoDB database"
+        );
+        let start = std::time::Instant::now();
         let connection_string = Self::build_connection_string(config, password);
 
         let client_options = ClientOptions::parse(&connection_string)
             .await
             .map_err(|e| {
-                warn!(error = %e, "Failed to parse MongoDB connection string");
-                DataError::Connection(format!("Failed to parse connection string: {}", e))
+                let elapsed = start.elapsed();
+                warn!(
+                    error = %e,
+                    elapsed_ms = elapsed.as_millis(),
+                    "Failed to parse MongoDB connection string"
+                );
+                DataError::Connection(format!(
+                    "Invalid connection string for {}:{} - {}",
+                    host, port, e
+                ))
             })?;
 
         let client = Client::with_options(client_options).map_err(|e| {
-            warn!(error = %e, "Failed to create MongoDB client");
-            DataError::Connection(format!("Failed to create client: {}", e))
+            let elapsed = start.elapsed();
+            warn!(
+                error = %e,
+                elapsed_ms = elapsed.as_millis(),
+                "Failed to create MongoDB client"
+            );
+            DataError::Connection(format!(
+                "Failed to create MongoDB client for {}:{} - {}",
+                host, port, e
+            ))
         })?;
 
         // Test the connection
         client
-            .database(&config.database)
+            .database(database)
             .run_command(doc! { "ping": 1 }, None)
             .await
             .map_err(|e| {
-                warn!(error = %e, "Failed to connect to MongoDB");
-                DataError::Connection(format!("Failed to connect: {}", e))
+                let elapsed = start.elapsed();
+                let error_msg = e.to_string();
+
+                // Categorize MongoDB connection errors
+                let error_category = if error_msg.contains("authentication failed") || error_msg.contains("auth failed") {
+                    "authentication"
+                } else if error_msg.contains("connection refused") || error_msg.contains("No connection available") {
+                    "network"
+                } else if error_msg.contains("not master") || error_msg.contains("replica set") {
+                    "replica_set"
+                } else if error_msg.contains("unauthorized") {
+                    "unauthorized"
+                } else {
+                    "unknown"
+                };
+
+                warn!(
+                    error = %e,
+                    error_category = %error_category,
+                    elapsed_ms = elapsed.as_millis(),
+                    "Failed to connect to MongoDB"
+                );
+
+                if error_msg.contains("authentication failed") || error_msg.contains("auth failed") {
+                    DataError::Connection(format!(
+                        "Authentication failed for database '{}' at {}:{} - {}",
+                        database, host, port, e
+                    ))
+                } else if error_msg.contains("connection refused") || error_msg.contains("No connection available") {
+                    DataError::Connection(format!(
+                        "Network error connecting to MongoDB at {}:{} - {}",
+                        host, port, e
+                    ))
+                } else if error_msg.contains("not master") || error_msg.contains("replica set") {
+                    DataError::Connection(format!(
+                        "Replica set configuration issue at {}:{} - {}",
+                        host, port, e
+                    ))
+                } else if error_msg.contains("unauthorized") {
+                    DataError::Connection(format!(
+                        "Unauthorized access to database '{}' at {}:{} - {}",
+                        database, host, port, e
+                    ))
+                } else {
+                    DataError::Connection(format!(
+                        "Failed to connect to database '{}' at {}:{} - {}",
+                        database, host, port, e
+                    ))
+                }
             })?;
 
+        let elapsed = start.elapsed();
         self.client = Some(client);
         self.current_database = Some(config.database.clone());
-        info!("Successfully connected to MongoDB");
+        info!(
+            elapsed_ms = elapsed.as_millis(),
+            "Successfully connected to MongoDB"
+        );
         Ok(())
     }
 
@@ -128,7 +257,6 @@ impl DatabaseAdapter for MongoDbAdapter {
 
     #[instrument(skip(self, query), fields(query_len = query.len()))]
     async fn execute_query(&self, query: &str) -> Result<QueryResult> {
-        debug!("Executing MongoDB query");
         let client = self
             .client
             .as_ref()
@@ -139,16 +267,38 @@ impl DatabaseAdapter for MongoDbAdapter {
             .as_ref()
             .ok_or_else(|| DataError::Connection("No database selected".to_string()))?;
 
+        let query_snippet = if query.len() > 100 {
+            format!("{}...", &query[..100])
+        } else {
+            query.to_string()
+        };
+
+        debug!(
+            query_snippet = %query_snippet,
+            database = %db_name,
+            "Executing MongoDB query"
+        );
+        let start = std::time::Instant::now();
+
         // Parse the query as a MongoDB command
         // For simplicity, we'll assume the query is a JSON document representing a find command
         // Format: {"collection": "collectionName", "filter": {...}, "limit": 10}
         let command: Document = serde_json::from_str(query).map_err(|e| {
+            let elapsed = start.elapsed();
+            warn!(
+                error = %e,
+                query_snippet = %query_snippet,
+                elapsed_ms = elapsed.as_millis(),
+                "Invalid MongoDB query format"
+            );
             DataError::Query(format!("Invalid MongoDB query format: {}. Expected JSON document with 'collection' and 'filter' fields", e))
         })?;
 
         let collection_name = command
             .get_str("collection")
             .map_err(|_| DataError::Query("Missing 'collection' field in query".to_string()))?;
+
+        Self::validate_collection_name(collection_name)?;
 
         let filter = command
             .get_document("filter")
@@ -161,8 +311,54 @@ impl DatabaseAdapter for MongoDbAdapter {
         let mut cursor = collection
             .find(filter, None)
             .await
-            .map_err(|e| DataError::Query(format!("Query failed: {}", e)))?;
+            .map_err(|e| {
+                let elapsed = start.elapsed();
+                let error_msg = e.to_string();
 
+                // Categorize MongoDB query errors
+                let error_category = if error_msg.contains("namespace not found") || error_msg.contains("does not exist") {
+                    "collection_not_found"
+                } else if error_msg.contains("unauthorized") || error_msg.contains("not authorized") {
+                    "unauthorized"
+                } else if error_msg.contains("bad query") || error_msg.contains("invalid") {
+                    "invalid_query"
+                } else {
+                    "unknown"
+                };
+
+                warn!(
+                    error = %e,
+                    error_category = %error_category,
+                    collection = %collection_name,
+                    query_snippet = %query_snippet,
+                    elapsed_ms = elapsed.as_millis(),
+                    "Query execution failed"
+                );
+
+                if error_msg.contains("namespace not found") || error_msg.contains("does not exist") {
+                    DataError::Query(format!(
+                        "Collection '{}' not found in database '{}' - {}",
+                        collection_name, db_name, e
+                    ))
+                } else if error_msg.contains("unauthorized") || error_msg.contains("not authorized") {
+                    DataError::Query(format!(
+                        "Unauthorized to query collection '{}' - {}",
+                        collection_name, e
+                    ))
+                } else if error_msg.contains("bad query") || error_msg.contains("invalid") {
+                    DataError::Query(format!(
+                        "Invalid query for collection '{}': {} - Query: {}",
+                        collection_name, e, query
+                    ))
+                } else {
+                    DataError::Query(format!(
+                        "Query failed for collection '{}': {} - Query: {}",
+                        collection_name, e, query
+                    ))
+                }
+            })?;
+
+        let fetch_start = std::time::Instant::now();
         let mut result_rows = Vec::new();
         let mut columns = Vec::new();
 
@@ -190,11 +386,24 @@ impl DatabaseAdapter for MongoDbAdapter {
             result_rows.push(row_values);
         }
 
-        let rows_affected = result_rows.len() as u64;
+        let fetch_elapsed = fetch_start.elapsed();
+        let total_elapsed = start.elapsed();
+        let row_count = result_rows.len();
+        let column_count = columns.len();
+
+        info!(
+            collection = %collection_name,
+            rows_count = row_count,
+            columns_count = column_count,
+            fetch_ms = fetch_elapsed.as_millis(),
+            total_ms = total_elapsed.as_millis(),
+            "Query executed successfully"
+        );
+
         Ok(QueryResult {
             columns,
             rows: result_rows,
-            rows_affected: Some(rows_affected),
+            rows_affected: Some(row_count as u64),
         })
     }
 
@@ -781,5 +990,96 @@ mod tests {
             MongoDbAdapter::bson_to_query_value(&Bson::String("test".to_string())),
             QueryValue::Text(_)
         ));
+    }
+
+    // ===== Validation Tests =====
+
+    #[test]
+    fn test_validate_database_name_valid() {
+        assert!(MongoDbAdapter::validate_database_name("testdb").is_ok());
+        assert!(MongoDbAdapter::validate_database_name("my_database_123").is_ok());
+    }
+
+    #[test]
+    fn test_validate_database_name_empty() {
+        let result = MongoDbAdapter::validate_database_name("");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[test]
+    fn test_validate_database_name_too_long() {
+        let long_name = "a".repeat(65);
+        let result = MongoDbAdapter::validate_database_name(&long_name);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[test]
+    fn test_validate_database_name_max_length() {
+        let max_name = "a".repeat(64);
+        assert!(MongoDbAdapter::validate_database_name(&max_name).is_ok());
+    }
+
+    #[test]
+    fn test_validate_collection_name_valid() {
+        assert!(MongoDbAdapter::validate_collection_name("users").is_ok());
+        assert!(MongoDbAdapter::validate_collection_name("order_items").is_ok());
+    }
+
+    #[test]
+    fn test_validate_collection_name_empty() {
+        let result = MongoDbAdapter::validate_collection_name("");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[test]
+    fn test_validate_collection_name_system_prefix() {
+        let result = MongoDbAdapter::validate_collection_name("system.users");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[test]
+    fn test_validate_collection_name_invalid_chars() {
+        assert!(MongoDbAdapter::validate_collection_name("test$collection").is_err());
+        assert!(MongoDbAdapter::validate_collection_name("test\0collection").is_err());
+    }
+
+    // ===== QueryValue Display Tests =====
+
+    #[test]
+    fn test_query_value_display_null() {
+        assert_eq!(QueryValue::Null.to_string(), "NULL");
+    }
+
+    #[test]
+    fn test_query_value_display_bool() {
+        assert_eq!(QueryValue::Bool(true).to_string(), "true");
+        assert_eq!(QueryValue::Bool(false).to_string(), "false");
+    }
+
+    #[test]
+    fn test_query_value_display_int() {
+        assert_eq!(QueryValue::Int(42).to_string(), "42");
+        assert_eq!(QueryValue::Int(-100).to_string(), "-100");
+    }
+
+    #[test]
+    fn test_query_value_display_float() {
+        assert_eq!(QueryValue::Float(3.14).to_string(), "3.14");
+        assert_eq!(QueryValue::Float(-2.5).to_string(), "-2.5");
+    }
+
+    #[test]
+    fn test_query_value_display_text() {
+        assert_eq!(QueryValue::Text("hello".to_string()).to_string(), "hello");
+    }
+
+    #[test]
+    fn test_query_value_display_bytes() {
+        let bytes = vec![1, 2, 3, 4, 5];
+        assert_eq!(QueryValue::Bytes(bytes).to_string(), "<5 bytes>");
     }
 }

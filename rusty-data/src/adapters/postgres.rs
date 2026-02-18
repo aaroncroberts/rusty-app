@@ -204,7 +204,14 @@ impl DatabaseAdapter for PostgresAdapter {
         let port = config.port.unwrap_or(5432);
         let database = &config.database;
 
-        info!("Connecting to PostgreSQL database");
+        info!(
+            database = %database,
+            host = %host,
+            port = %port,
+            "Connecting to PostgreSQL database"
+        );
+
+        let start = std::time::Instant::now();
         let connection_string = Self::build_connection_string(config, password)?;
 
         let pool = PgPoolOptions::new()
@@ -212,34 +219,65 @@ impl DatabaseAdapter for PostgresAdapter {
             .connect(&connection_string)
             .await
             .map_err(|e| {
-                warn!(error = %e, "Failed to connect to PostgreSQL");
+                let elapsed = start.elapsed();
                 let error_msg = e.to_string();
+
                 // Categorize connection errors
-                if error_msg.contains("password authentication failed") || error_msg.contains("no pg_hba.conf entry") {
-                    DataError::Connection(format!(
+                let error_category = if error_msg.contains("password authentication failed") || error_msg.contains("no pg_hba.conf entry") {
+                    "authentication"
+                } else if error_msg.contains("could not translate host name") || error_msg.contains("Connection refused") {
+                    "network"
+                } else if error_msg.contains("does not exist") {
+                    "database_not_found"
+                } else {
+                    "unknown"
+                };
+
+                warn!(
+                    error = %e,
+                    error_category = %error_category,
+                    database = %database,
+                    host = %host,
+                    port = %port,
+                    elapsed_ms = elapsed.as_millis(),
+                    "Failed to connect to PostgreSQL"
+                );
+
+                match error_category {
+                    "authentication" => DataError::Connection(format!(
                         "Authentication failed for database '{}' at {}:{} - {}",
                         database, host, port, e
-                    ))
-                } else if error_msg.contains("could not translate host name") || error_msg.contains("Connection refused") {
-                    DataError::Connection(format!(
+                    )),
+                    "network" => DataError::Connection(format!(
                         "Network error connecting to {}:{} - {}",
                         host, port, e
-                    ))
-                } else if error_msg.contains("does not exist") {
-                    DataError::Connection(format!(
+                    )),
+                    "database_not_found" => DataError::Connection(format!(
                         "Database '{}' does not exist at {}:{}",
                         database, host, port
-                    ))
-                } else {
-                    DataError::Connection(format!(
+                    )),
+                    _ => DataError::Connection(format!(
                         "Failed to connect to database '{}' at {}:{} - {}",
                         database, host, port, e
-                    ))
+                    )),
                 }
             })?;
 
+        let elapsed = start.elapsed();
+        let pool_size = pool.size();
+
         self.pool = Some(pool);
-        info!("Successfully connected to PostgreSQL");
+
+        info!(
+            database = %database,
+            host = %host,
+            port = %port,
+            max_connections = 5,
+            current_size = pool_size,
+            elapsed_ms = elapsed.as_millis(),
+            "Successfully connected to PostgreSQL"
+        );
+
         Ok(())
     }
 
@@ -258,8 +296,6 @@ impl DatabaseAdapter for PostgresAdapter {
 
     #[instrument(skip(self, query), fields(query_len = query.len()))]
     async fn execute_query(&self, query: &str) -> Result<QueryResult> {
-        debug!("Executing query");
-
         // Validate query
         Self::validate_query(query)?;
 
@@ -268,33 +304,69 @@ impl DatabaseAdapter for PostgresAdapter {
             .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
-        // Get query snippet for error messages (first 100 chars)
+        // Get query snippet for logging (first 100 chars)
         let query_snippet = if query.len() > 100 {
             format!("{}...", &query[..100])
         } else {
             query.to_string()
         };
 
+        debug!(
+            query_snippet = %query_snippet,
+            query_len = query.len(),
+            pool_size = pool.size(),
+            "Executing PostgreSQL query"
+        );
+
+        let start = std::time::Instant::now();
+
         let rows = sqlx::query(query)
             .fetch_all(pool)
             .await
             .map_err(|e| {
+                let elapsed = start.elapsed();
                 let error_msg = e.to_string();
+
                 // Categorize query errors
-                if error_msg.contains("syntax error") {
-                    DataError::Query(format!("SQL syntax error in query: {} - Error: {}", query_snippet, e))
+                let error_category = if error_msg.contains("syntax error") {
+                    "syntax_error"
                 } else if error_msg.contains("permission denied") || error_msg.contains("must be owner") {
-                    DataError::Query(format!("Permission denied executing query: {} - Error: {}", query_snippet, e))
+                    "permission_denied"
                 } else if error_msg.contains("does not exist") {
-                    DataError::Query(format!("Object not found executing query: {} - Error: {}", query_snippet, e))
+                    "object_not_found"
                 } else if error_msg.contains("violates") {
-                    DataError::Query(format!("Constraint violation in query: {} - Error: {}", query_snippet, e))
+                    "constraint_violation"
                 } else {
-                    DataError::Query(format!("Query execution failed: {} - Error: {}", query_snippet, e))
+                    "unknown"
+                };
+
+                warn!(
+                    error = %e,
+                    error_category = %error_category,
+                    query_snippet = %query_snippet,
+                    elapsed_ms = elapsed.as_millis(),
+                    "Query execution failed"
+                );
+
+                match error_category {
+                    "syntax_error" => DataError::Query(format!("SQL syntax error in query: {} - Error: {}", query_snippet, e)),
+                    "permission_denied" => DataError::Query(format!("Permission denied executing query: {} - Error: {}", query_snippet, e)),
+                    "object_not_found" => DataError::Query(format!("Object not found executing query: {} - Error: {}", query_snippet, e)),
+                    "constraint_violation" => DataError::Query(format!("Constraint violation in query: {} - Error: {}", query_snippet, e)),
+                    _ => DataError::Query(format!("Query execution failed: {} - Error: {}", query_snippet, e)),
                 }
             })?;
 
+        let fetch_elapsed = start.elapsed();
+
         if rows.is_empty() {
+            debug!(
+                query_snippet = %query_snippet,
+                elapsed_ms = fetch_elapsed.as_millis(),
+                rows_count = 0,
+                "Query returned no rows"
+            );
+
             return Ok(QueryResult {
                 columns: vec![],
                 rows: vec![],
@@ -313,6 +385,20 @@ impl DatabaseAdapter for PostgresAdapter {
             let values = Self::row_to_values(row)?;
             result_rows.push(values);
         }
+
+        let total_elapsed = start.elapsed();
+        let row_count = result_rows.len();
+        let column_count = columns.len();
+
+        info!(
+            query_snippet = %query_snippet,
+            rows_count = row_count,
+            columns_count = column_count,
+            fetch_ms = fetch_elapsed.as_millis(),
+            total_ms = total_elapsed.as_millis(),
+            pool_size = pool.size(),
+            "Query executed successfully"
+        );
 
         Ok(QueryResult {
             columns,
@@ -938,5 +1024,107 @@ mod tests {
         let result = adapter.connect(&config, Some("password")).await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    // ========== Validation Tests ==========
+
+    #[test]
+    fn test_validate_database_name_valid() {
+        assert!(PostgresAdapter::validate_database_name("mydb").is_ok());
+        assert!(PostgresAdapter::validate_database_name("test_db_123").is_ok());
+        assert!(PostgresAdapter::validate_database_name("a").is_ok());
+    }
+
+    #[test]
+    fn test_validate_database_name_empty() {
+        let result = PostgresAdapter::validate_database_name("");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[test]
+    fn test_validate_database_name_too_long() {
+        let long_name = "a".repeat(64);
+        let result = PostgresAdapter::validate_database_name(&long_name);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[test]
+    fn test_validate_table_name_valid() {
+        assert!(PostgresAdapter::validate_table_name("users").is_ok());
+        assert!(PostgresAdapter::validate_table_name("user_profiles").is_ok());
+        assert!(PostgresAdapter::validate_table_name("t1").is_ok());
+    }
+
+    #[test]
+    fn test_validate_table_name_empty() {
+        let result = PostgresAdapter::validate_table_name("");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[test]
+    fn test_validate_table_name_too_long() {
+        let long_name = "t".repeat(64);
+        let result = PostgresAdapter::validate_table_name(&long_name);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[test]
+    fn test_validate_query_valid() {
+        assert!(PostgresAdapter::validate_query("SELECT * FROM users").is_ok());
+        assert!(PostgresAdapter::validate_query("INSERT INTO users VALUES (1)").is_ok());
+    }
+
+    #[test]
+    fn test_validate_query_empty() {
+        let result = PostgresAdapter::validate_query("");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[test]
+    fn test_validate_query_whitespace_only() {
+        let result = PostgresAdapter::validate_query("   \n\t  ");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    // ========== Connection String Building Tests ==========
+
+    #[test]
+    fn test_build_connection_string_validation() {
+        let mut config = test_config();
+        config.database = "".to_string();
+        let result = PostgresAdapter::build_connection_string(&config, Some("password"));
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    #[test]
+    fn test_build_connection_string_special_characters() {
+        let mut config = test_config();
+        config.database = "test@db".to_string();
+        let result = PostgresAdapter::build_connection_string(&config, Some("p@ssw0rd!"));
+        assert!(result.is_ok());
+        // URL encoding should handle special characters
+        let conn_str = result.unwrap();
+        assert!(conn_str.contains("postgresql://"));
+    }
+
+    // ========== Data Type Conversion Tests ==========
+
+    #[test]
+    fn test_query_value_display() {
+        use crate::adapter::QueryValue;
+
+        assert_eq!(QueryValue::Null.to_string(), "NULL");
+        assert_eq!(QueryValue::Bool(true).to_string(), "true");
+        assert_eq!(QueryValue::Bool(false).to_string(), "false");
+        assert_eq!(QueryValue::Int(42).to_string(), "42");
+        assert_eq!(QueryValue::Float(3.14).to_string(), "3.14");
+        assert_eq!(QueryValue::Text("hello".to_string()).to_string(), "hello");
     }
 }

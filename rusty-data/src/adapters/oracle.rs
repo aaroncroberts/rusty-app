@@ -20,6 +20,42 @@ impl OracleAdapter {
         Self { pool: None }
     }
 
+    /// Validate database name (service name or SID)
+    fn validate_database_name(name: &str) -> Result<()> {
+        if name.is_empty() {
+            return Err(DataError::Config("Database name (service name/SID) cannot be empty".to_string()));
+        }
+        if name.len() > 128 {
+            return Err(DataError::Config(format!(
+                "Database name too long (max 128 chars): {}",
+                name.len()
+            )));
+        }
+        Ok(())
+    }
+
+    /// Validate table name
+    fn validate_table_name(name: &str) -> Result<()> {
+        if name.is_empty() {
+            return Err(DataError::Config("Table name cannot be empty".to_string()));
+        }
+        if name.len() > 128 {
+            return Err(DataError::Config(format!(
+                "Table name too long (max 128 chars): {}",
+                name.len()
+            )));
+        }
+        Ok(())
+    }
+
+    /// Validate query
+    fn validate_query(query: &str) -> Result<()> {
+        if query.trim().is_empty() {
+            return Err(DataError::Config("Query cannot be empty".to_string()));
+        }
+        Ok(())
+    }
+
     /// Build a connection string from configuration
     fn build_connection_string(config: &ConnectionConfig) -> String {
         let host = config.host.as_deref().unwrap_or("localhost");
@@ -32,22 +68,99 @@ impl OracleAdapter {
     /// Execute a query in a blocking context
     /// This is a static method to avoid lifetime issues with spawn_blocking
     fn execute_blocking(pool: Pool<Connection>, query: String) -> Result<QueryResult> {
+        let query_snippet = if query.len() > 100 {
+            format!("{}...", &query[..100])
+        } else {
+            query.clone()
+        };
+
+        let start = std::time::Instant::now();
+
         // Get the connection from the pool in the blocking context
         let conn_guard = futures::executor::block_on(pool.lock());
-        
+
         // Execute the query
         let mut stmt = conn_guard.statement(&query).build()
-            .map_err(|e| DataError::Query(format!("Failed to prepare statement: {}", e)))?;
-        
+            .map_err(|e| {
+                let elapsed = start.elapsed();
+                let error_msg = e.to_string();
+
+                let error_category = if error_msg.contains("ORA-00900") || error_msg.contains("invalid SQL statement") {
+                    "syntax"
+                } else {
+                    "prepare_failed"
+                };
+
+                tracing::warn!(
+                    error = %e,
+                    error_category = %error_category,
+                    query_snippet = %query_snippet,
+                    elapsed_ms = elapsed.as_millis(),
+                    "Failed to prepare Oracle statement"
+                );
+
+                if error_msg.contains("ORA-00900") || error_msg.contains("invalid SQL statement") {
+                    DataError::Query(format!("SQL syntax error: {} - Query: {}", e, query))
+                } else {
+                    DataError::Query(format!("Failed to prepare statement: {} - Query: {}", e, query))
+                }
+            })?;
+
         let mut result_set = stmt.query(&[])
-            .map_err(|e| DataError::Query(format!("Query failed: {}", e)))?;
+            .map_err(|e| {
+                let elapsed = start.elapsed();
+                let error_msg = e.to_string();
+
+                // Categorize Oracle query errors
+                let error_category = if error_msg.contains("ORA-00942") || error_msg.contains("table or view does not exist") {
+                    "object_not_found"
+                } else if error_msg.contains("ORA-00904") || error_msg.contains("invalid identifier") {
+                    "column_not_found"
+                } else if error_msg.contains("ORA-00001") || error_msg.contains("unique constraint") {
+                    "unique_constraint"
+                } else if error_msg.contains("ORA-02291") || error_msg.contains("integrity constraint") {
+                    "foreign_key_constraint"
+                } else if error_msg.contains("ORA-01407") || error_msg.contains("cannot update") && error_msg.contains("to NULL") {
+                    "not_null_constraint"
+                } else if error_msg.contains("ORA-02290") || error_msg.contains("check constraint") {
+                    "check_constraint"
+                } else {
+                    "unknown"
+                };
+
+                tracing::warn!(
+                    error = %e,
+                    error_category = %error_category,
+                    query_snippet = %query_snippet,
+                    elapsed_ms = elapsed.as_millis(),
+                    "Query execution failed"
+                );
+
+                if error_msg.contains("ORA-00942") || error_msg.contains("table or view does not exist") {
+                    DataError::Query(format!("Table or view not found: {} - Query: {}", e, query))
+                } else if error_msg.contains("ORA-00904") || error_msg.contains("invalid identifier") {
+                    DataError::Query(format!("Column not found: {} - Query: {}", e, query))
+                } else if error_msg.contains("ORA-00001") || error_msg.contains("unique constraint") {
+                    DataError::Query(format!("Unique constraint violation: {} - Query: {}", e, query))
+                } else if error_msg.contains("ORA-02291") || error_msg.contains("integrity constraint") {
+                    DataError::Query(format!("Foreign key constraint violation: {} - Query: {}", e, query))
+                } else if error_msg.contains("ORA-01407") || error_msg.contains("cannot update") && error_msg.contains("to NULL") {
+                    DataError::Query(format!("Not null constraint violation: {} - Query: {}", e, query))
+                } else if error_msg.contains("ORA-02290") || error_msg.contains("check constraint") {
+                    DataError::Query(format!("Check constraint violation: {} - Query: {}", e, query))
+                } else {
+                    DataError::Query(format!("Query failed: {} - Query: {}", e, query))
+                }
+            })?;
+
+        let fetch_start = std::time::Instant::now();
 
         // Get column information
         let column_info = result_set.column_info();
         let columns: Vec<String> = column_info.iter()
             .map(|col| col.name().to_string())
             .collect();
-        
+
         let column_count = columns.len();
 
         // Collect rows
@@ -60,7 +173,9 @@ impl OracleAdapter {
             rows.push(values);
         }
 
-        let _row_count = rows.len() as u64;
+        let row_count = rows.len();
+        let fetch_elapsed = fetch_start.elapsed();
+        let total_elapsed = start.elapsed();
 
         // For DML statements (INSERT, UPDATE, DELETE), rows will be empty
         // Oracle doesn't easily provide rows_affected without additional work
@@ -69,6 +184,14 @@ impl OracleAdapter {
         } else {
             None // SELECT query
         };
+
+        tracing::info!(
+            rows_count = row_count,
+            columns_count = column_count,
+            fetch_ms = fetch_elapsed.as_millis(),
+            total_ms = total_elapsed.as_millis(),
+            "Query executed successfully"
+        );
 
         Ok(QueryResult {
             columns,
@@ -135,7 +258,19 @@ impl DatabaseAdapter for OracleAdapter {
             )));
         }
 
-        info!("Connecting to Oracle database");
+        Self::validate_database_name(&config.database)?;
+
+        let host = config.host.as_deref().unwrap_or("localhost");
+        let port = config.port.unwrap_or(1521);
+        let database = &config.database;
+
+        info!(
+            database = %database,
+            host = %host,
+            port = %port,
+            "Connecting to Oracle database"
+        );
+        let start = std::time::Instant::now();
 
         let username = config.username.as_deref().ok_or_else(|| {
             DataError::Config("Username is required for Oracle".to_string())
@@ -157,16 +292,82 @@ impl DatabaseAdapter for OracleAdapter {
         })
         .await
         .map_err(|e| {
-            warn!(error = %e, "Task join error");
-            DataError::Connection(format!("Failed to connect: {}", e))
+            let elapsed = start.elapsed();
+            warn!(
+                error = %e,
+                elapsed_ms = elapsed.as_millis(),
+                "Task join error"
+            );
+            DataError::Connection(format!(
+                "Task join error connecting to Oracle at {}:{} - {}",
+                host, port, e
+            ))
         })?
         .map_err(|e| {
-            warn!(error = %e, "Failed to connect to Oracle");
-            DataError::Connection(format!("Failed to connect: {}", e))
+            let elapsed = start.elapsed();
+            let error_msg = e.to_string();
+
+            // Categorize Oracle connection errors
+            let error_category = if error_msg.contains("ORA-01017") || error_msg.contains("invalid username/password") {
+                "authentication"
+            } else if error_msg.contains("ORA-12154") || error_msg.contains("TNS:could not resolve") {
+                "tns_resolution"
+            } else if error_msg.contains("ORA-12170") || error_msg.contains("TNS:connect timeout") {
+                "timeout"
+            } else if error_msg.contains("ORA-12541") || error_msg.contains("TNS:no listener") {
+                "no_listener"
+            } else if error_msg.contains("ORA-01033") || error_msg.contains("ORACLE initialization or shutdown") {
+                "instance_unavailable"
+            } else {
+                "unknown"
+            };
+
+            warn!(
+                error = %e,
+                error_category = %error_category,
+                elapsed_ms = elapsed.as_millis(),
+                "Failed to connect to Oracle"
+            );
+
+            if error_msg.contains("ORA-01017") || error_msg.contains("invalid username/password") {
+                DataError::Connection(format!(
+                    "Authentication failed for database '{}' at {}:{} - {}",
+                    database, host, port, e
+                ))
+            } else if error_msg.contains("ORA-12154") || error_msg.contains("TNS:could not resolve") {
+                DataError::Connection(format!(
+                    "Service name '{}' not found or TNS resolution failed at {}:{} - {}",
+                    database, host, port, e
+                ))
+            } else if error_msg.contains("ORA-12170") || error_msg.contains("TNS:connect timeout") {
+                DataError::Connection(format!(
+                    "Network timeout connecting to Oracle at {}:{} - {}",
+                    host, port, e
+                ))
+            } else if error_msg.contains("ORA-12541") || error_msg.contains("TNS:no listener") {
+                DataError::Connection(format!(
+                    "No listener at {}:{} - is Oracle service running? - {}",
+                    host, port, e
+                ))
+            } else if error_msg.contains("ORA-01033") || error_msg.contains("ORACLE initialization or shutdown") {
+                DataError::Connection(format!(
+                    "Oracle instance at {}:{} is starting up or shutting down - {}",
+                    host, port, e
+                ))
+            } else {
+                DataError::Connection(format!(
+                    "Failed to connect to database '{}' at {}:{} - {}",
+                    database, host, port, e
+                ))
+            }
         })?;
 
+        let elapsed = start.elapsed();
         self.pool = Some(Pool::new(connection));
-        info!("Successfully connected to Oracle");
+        info!(
+            elapsed_ms = elapsed.as_millis(),
+            "Successfully connected to Oracle"
+        );
         Ok(())
     }
 
@@ -185,6 +386,8 @@ impl DatabaseAdapter for OracleAdapter {
 
     #[instrument(skip_all)]
     async fn execute_query(&self, query: &str) -> Result<QueryResult> {
+        Self::validate_query(query)?;
+
         debug!("Executing Oracle query");
 
         // Clone pool and drop borrow of self immediately
@@ -193,7 +396,7 @@ impl DatabaseAdapter for OracleAdapter {
                 .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
             pool_ref.clone()
         };
-        
+
         let query = query.to_string();
 
         // Oracle is synchronous, so we run queries in a blocking task
@@ -258,6 +461,8 @@ impl DatabaseAdapter for OracleAdapter {
 
     #[instrument(skip(self), fields(table = %table_name))]
     async fn describe_table(&self, table_name: &str, schema: Option<&str>) -> Result<TableInfo> {
+        Self::validate_table_name(table_name)?;
+
         let query = if let Some(schema_name) = schema {
             format!(
                 "SELECT column_name, data_type, nullable, data_default \
@@ -437,6 +642,8 @@ impl DatabaseAdapter for OracleAdapter {
 
     #[instrument(skip(self), fields(table = %table_name))]
     async fn get_table_metadata(&self, table_name: &str, schema: Option<&str>) -> Result<TableMetadata> {
+        Self::validate_table_name(table_name)?;
+
         info!("Retrieving metadata for table: {}", table_name);
 
         let owner = schema.unwrap_or("USER");
@@ -483,6 +690,8 @@ impl DatabaseAdapter for OracleAdapter {
 
     #[instrument(skip(self), fields(table = %table_name))]
     async fn get_indexes(&self, table_name: &str, schema: Option<&str>) -> Result<Vec<IndexInfo>> {
+        Self::validate_table_name(table_name)?;
+
         info!("Retrieving indexes for table: {}", table_name);
 
         let owner = schema.unwrap_or("USER");
@@ -553,6 +762,8 @@ impl DatabaseAdapter for OracleAdapter {
 
     #[instrument(skip(self), fields(table = %table_name))]
     async fn get_foreign_keys(&self, table_name: &str, schema: Option<&str>) -> Result<Vec<ForeignKeyInfo>> {
+        Self::validate_table_name(table_name)?;
+
         info!("Retrieving foreign keys for table: {}", table_name);
 
         let owner = schema.unwrap_or("USER");
@@ -829,5 +1040,49 @@ mod tests {
         let result = adapter.connect(&config, Some("password")).await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), DataError::Config(_)));
+    }
+
+    // ===== Validation Tests =====
+    #[test]
+    fn test_validate_database_name_valid() {
+        assert!(OracleAdapter::validate_database_name("ORCL").is_ok());
+        assert!(OracleAdapter::validate_database_name("XE").is_ok());
+    }
+
+    #[test]
+    fn test_validate_database_name_empty() {
+        assert!(OracleAdapter::validate_database_name("").is_err());
+    }
+
+    #[test]
+    fn test_validate_table_name_valid() {
+        assert!(OracleAdapter::validate_table_name("USERS").is_ok());
+        assert!(OracleAdapter::validate_table_name("ORDER_ITEMS").is_ok());
+    }
+
+    #[test]
+    fn test_validate_table_name_empty() {
+        assert!(OracleAdapter::validate_table_name("").is_err());
+    }
+
+    #[test]
+    fn test_validate_query_valid() {
+        assert!(OracleAdapter::validate_query("SELECT * FROM USERS").is_ok());
+    }
+
+    #[test]
+    fn test_validate_query_empty() {
+        assert!(OracleAdapter::validate_query("").is_err());
+    }
+
+    // ===== QueryValue Display Tests =====
+    #[test]
+    fn test_query_value_display() {
+        assert_eq!(QueryValue::Null.to_string(), "NULL");
+        assert_eq!(QueryValue::Bool(true).to_string(), "true");
+        assert_eq!(QueryValue::Int(42).to_string(), "42");
+        assert_eq!(QueryValue::Float(3.14).to_string(), "3.14");
+        assert_eq!(QueryValue::Text("hello".to_string()).to_string(), "hello");
+        assert_eq!(QueryValue::Bytes(vec![1, 2, 3]).to_string(), "<3 bytes>");
     }
 }

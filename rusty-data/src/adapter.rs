@@ -2,6 +2,7 @@ use crate::error::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 
 /// Represents a database connection configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +70,19 @@ pub enum QueryValue {
     Float(f64),
     Text(String),
     Bytes(Vec<u8>),
+}
+
+impl fmt::Display for QueryValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            QueryValue::Null => write!(f, "NULL"),
+            QueryValue::Bool(b) => write!(f, "{}", b),
+            QueryValue::Int(i) => write!(f, "{}", i),
+            QueryValue::Float(fl) => write!(f, "{}", fl),
+            QueryValue::Text(s) => write!(f, "{}", s),
+            QueryValue::Bytes(bytes) => write!(f, "<{} bytes>", bytes.len()),
+        }
+    }
 }
 
 /// Result of a query execution
