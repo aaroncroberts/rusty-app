@@ -271,6 +271,45 @@ impl DatabaseAdapter for MssqlAdapter {
 
         let mut client = pool.lock().await;
 
+        // Check if this is a DDL statement that doesn't return results
+        let query_upper = query.trim().to_uppercase();
+        let is_ddl = query_upper.starts_with("CREATE VIEW")
+            || query_upper.starts_with("CREATE PROCEDURE")
+            || query_upper.starts_with("CREATE FUNCTION")
+            || query_upper.starts_with("ALTER VIEW")
+            || query_upper.starts_with("ALTER PROCEDURE")
+            || query_upper.starts_with("ALTER FUNCTION")
+            || query_upper.starts_with("DROP VIEW")
+            || query_upper.starts_with("DROP PROCEDURE")
+            || query_upper.starts_with("DROP FUNCTION");
+
+        if is_ddl {
+            // Execute DDL statement using simple_query (doesn't return QueryResult)
+            client.simple_query(query).await.map_err(|e| {
+                let elapsed = start.elapsed();
+                warn!(
+                    error = %e,
+                    query_snippet = %query_snippet,
+                    elapsed_ms = elapsed.as_millis(),
+                    "DDL statement execution failed"
+                );
+                DataError::Query(format!("SQL syntax error: {} - Query: {}", e, query))
+            })?;
+
+            let elapsed = start.elapsed();
+            info!(
+                query_snippet = %query_snippet,
+                elapsed_ms = elapsed.as_millis(),
+                "DDL statement executed successfully"
+            );
+
+            return Ok(QueryResult {
+                columns: vec![],
+                rows: vec![],
+                rows_affected: Some(0),
+            });
+        }
+
         // Execute the query
         let mut result = client.query(query, &[]).await.map_err(|e| {
             let elapsed = start.elapsed();
@@ -531,8 +570,8 @@ impl DatabaseAdapter for MssqlAdapter {
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
             .lock().await;
 
-        // Get version
-        let version_query = "SELECT @@VERSION as version, SERVERPROPERTY('ProductVersion') as product_version, SERVERPROPERTY('Edition') as edition";
+        // Get version (cast SERVERPROPERTY to avoid SQL_VARIANT type issues)
+        let version_query = "SELECT @@VERSION as version, CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)) as product_version, CAST(SERVERPROPERTY('Edition') AS NVARCHAR(128)) as edition";
         let mut stream = client.query(version_query, &[]).await
             .map_err(|e| DataError::Query(format!("Failed to get server version: {}", e)))?;
 
@@ -571,16 +610,17 @@ impl DatabaseAdapter for MssqlAdapter {
 
         let query = format!(
             "SELECT
-                name,
-                CAST(SUM(size) * 8 / 1024 AS BIGINT) as size_mb,
-                suser_sname(owner_sid) as owner,
-                collation_name,
-                create_date,
-                recovery_model_desc,
-                compatibility_level
-            FROM sys.databases
-            WHERE name = '{}'
-            GROUP BY name, owner_sid, collation_name, create_date, recovery_model_desc, compatibility_level",
+                d.name,
+                COALESCE(CAST(SUM(mf.size) * 8 / 1024 AS BIGINT), 0) as size_mb,
+                suser_sname(d.owner_sid) as owner,
+                d.collation_name,
+                d.create_date,
+                d.recovery_model_desc,
+                d.compatibility_level
+            FROM sys.databases d
+            LEFT JOIN sys.master_files mf ON d.database_id = mf.database_id
+            WHERE d.name = '{}'
+            GROUP BY d.name, d.owner_sid, d.collation_name, d.create_date, d.recovery_model_desc, d.compatibility_level",
             database_name
         );
 

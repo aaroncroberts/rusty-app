@@ -68,7 +68,9 @@ impl SqliteAdapter {
         if config.database == ":memory:" {
             "sqlite::memory:".to_string()
         } else {
-            format!("sqlite://{}", config.database)
+            // Use file: scheme with mode=rwc to allow read/write and create
+            // This ensures the database file is created if it doesn't exist
+            format!("sqlite:{}?mode=rwc", config.database)
         }
     }
 
@@ -179,6 +181,14 @@ impl DatabaseAdapter for SqliteAdapter {
 
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
+            .after_connect(|conn, _meta| {
+                Box::pin(async move {
+                    // Enable foreign keys for this connection
+                    use sqlx::Executor;
+                    conn.execute("PRAGMA foreign_keys = ON").await?;
+                    Ok(())
+                })
+            })
             .connect(&connection_string)
             .await
             .map_err(|e| {

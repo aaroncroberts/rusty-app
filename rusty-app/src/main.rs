@@ -2,6 +2,7 @@ use iced::widget::{column, container, row};
 use iced::{Element, Fill, Subscription, Task, Theme};
 use iced::event::Event;
 use iced::mouse;
+use rusty_app::adapter_selector::{AdapterSelector, AdapterSelectorMessage};
 use rusty_app::components::{ComponentAction, ComponentId, PropertiesComponent, ServerListComponent, TableListComponent};
 use rusty_app::connection_form::{ConnectionForm, ConnectionFormData, ConnectionFormMessage};
 use rusty_app::container::ContainerManager;
@@ -9,10 +10,14 @@ use rusty_app::container::converter::sync_connections_with_containers;
 use rusty_app::left_panel::{self, LeftPanel};
 use rusty_app::main_panel::{MainPanel, TabId};
 use rusty_app::menu_bar::{MenuBar, MenuAction, MenuItem};
+use rusty_app::mysql_connection_form::{MySQLConnectionForm, MySQLConnectionFormData, MySQLConnectionFormMessage};
+use rusty_app::postgres_connection_form::{PostgresConnectionForm, PostgresConnectionFormData, PostgresConnectionFormMessage};
+use rusty_app::settings::{logging::build_logging_config, SettingsManager};
+use rusty_app::settings_editor::{SettingsEditor, SettingsEditorData, SettingsEditorMessage};
+use rusty_app::sqlite_connection_form::{SQLiteConnectionForm, SQLiteConnectionFormData, SQLiteConnectionFormMessage};
 use rusty_app::status_bar::{ConnectionStatus, StatusBar};
 use rusty_app::theme::ThemeColors;
 use rusty_app::views::{RegionId, ViewRegistry};
-use rusty_app::settings::{logging::build_logging_config, SettingsManager};
 use rusty_data::adapter::{ConnectionConfig, DatabaseType};
 use rusty_data::config::ConfigManager;
 use std::collections::HashMap;
@@ -62,16 +67,40 @@ struct DatabaseIDE {
     open_menu: Option<MenuItem>,
     show_left_panel: bool,
     view_registry: ViewRegistry,
+    showing_settings_editor: bool,
+    settings_editor: SettingsEditor,
+    settings_editor_data: SettingsEditorData,
+    settings_validation_error: Option<String>,
+    settings_success_message: Option<String>,
+    // Adapter-specific connection forms
+    showing_adapter_selector: bool,
+    adapter_selector: AdapterSelector,
+    selected_adapter: Option<DatabaseType>,
+    postgres_form: PostgresConnectionForm,
+    postgres_form_data: PostgresConnectionFormData,
+    postgres_testing: bool,
+    postgres_test_result: Option<Result<(), String>>,
+    mysql_form: MySQLConnectionForm,
+    mysql_form_data: MySQLConnectionFormData,
+    mysql_testing: bool,
+    mysql_test_result: Option<Result<(), String>>,
+    sqlite_form: SQLiteConnectionForm,
+    sqlite_form_data: SQLiteConnectionFormData,
+    sqlite_testing: bool,
+    sqlite_test_result: Option<Result<(), String>>,
 }
 
 impl Default for DatabaseIDE {
     fn default() -> Self {
         // Initialize SettingsManager
-        let settings_manager = SettingsManager::new("~/.rusty-app")
+        let mut settings_manager = SettingsManager::new("~/.rusty-app")
             .expect("Failed to initialize settings manager");
 
         // Load UI preferences from settings (clone to avoid borrow issues)
         let ui_prefs = settings_manager.settings().ui_preferences.clone();
+
+        // Initialize settings editor data from manager
+        let settings_editor_data = SettingsEditorData::from_manager(&settings_manager);
 
         // Set theme based on settings
         let theme = if ui_prefs.theme == "dark" {
@@ -85,22 +114,45 @@ impl Default for DatabaseIDE {
         // Create an initial tab
         main_panel.add_tab("Query 1".to_string());
 
-        // Initialize ConfigManager
+        // Initialize ConfigManager (kept for validation methods)
         let config_manager = ConfigManager::new("~/.rusty-app")
             .expect("Failed to initialize config manager");
+
+        // Migrate connections from connections.toml to settings.toml if needed
+        let connections_file = config_manager.connections_file();
+        if connections_file.exists() && settings_manager.settings().connections.is_empty() {
+            info!("Migrating connections from connections.toml to settings.toml");
+            match config_manager.load_connections() {
+                Ok(old_connections) => {
+                    if !old_connections.is_empty() {
+                        // Save to settings.toml
+                        settings_manager.settings_mut().connections = old_connections.clone();
+                        if let Err(e) = settings_manager.save() {
+                            warn!("Failed to save migrated connections: {}", e);
+                        } else {
+                            info!(count = old_connections.len(), "Migrated connections to settings.toml");
+                            // Delete old connections.toml after successful migration
+                            if let Err(e) = std::fs::remove_file(&connections_file) {
+                                warn!("Failed to delete old connections.toml: {}", e);
+                            } else {
+                                info!("Removed old connections.toml after migration");
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to load connections for migration: {}", e);
+                }
+            }
+        }
 
         // Initialize ContainerManager
         let container_manager = ContainerManager::new("rusty-data");
 
-        // Load saved connections
-        let mut saved_connections = config_manager
-            .load_connections()
-            .unwrap_or_else(|e| {
-                warn!("Failed to load connections: {}", e);
-                Vec::new()
-            });
+        // Load saved connections from settings.toml
+        let mut saved_connections = settings_manager.settings().connections.clone();
 
-        info!(count = saved_connections.len(), "Loaded saved connections");
+        info!(count = saved_connections.len(), "Loaded saved connections from settings");
 
         // Sync connections with running containers
         if container_manager.is_podman_available() {
@@ -123,8 +175,9 @@ impl Default for DatabaseIDE {
                         &saved_connections,
                     );
 
-                    // Save updated connections
-                    if let Err(e) = config_manager.save_connections(&saved_connections) {
+                    // Save updated connections to settings.toml
+                    settings_manager.settings_mut().connections = saved_connections.clone();
+                    if let Err(e) = settings_manager.save() {
                         warn!("Failed to save synced connections: {}", e);
                     } else {
                         info!(
@@ -185,6 +238,11 @@ impl Default for DatabaseIDE {
             open_menu: None,
             show_left_panel: ui_prefs.show_left_panel,
             view_registry,
+            showing_settings_editor: false,
+            settings_editor: SettingsEditor::new(theme),
+            settings_editor_data,
+            settings_validation_error: None,
+            settings_success_message: None,
         }
     }
 }
@@ -205,6 +263,8 @@ enum Message {
     ConnectionForm(ConnectionFormMessage),
     ConnectionTestResult(Result<(), String>),
     ComponentAction(ComponentAction),
+    ShowSettings,
+    SettingsEditor(SettingsEditorMessage),
 }
 
 impl From<ComponentAction> for Message {
@@ -272,6 +332,12 @@ impl DatabaseIDE {
                         match view_item {
                             ViewMenuItem::ToggleLeftPanel => {
                                 self.show_left_panel = !self.show_left_panel;
+                            }
+                            ViewMenuItem::Settings => {
+                                self.showing_settings_editor = true;
+                                self.settings_editor_data = SettingsEditorData::from_manager(&self.settings_manager);
+                                self.settings_validation_error = None;
+                                self.settings_success_message = None;
                             }
                             _ => {
                                 // Toggle component views in ViewRegistry
@@ -351,8 +417,9 @@ impl DatabaseIDE {
                         // Add to saved connections
                         self.saved_connections.push(config);
 
-                        // Save to disk
-                        if let Err(e) = self.config_manager.save_connections(&self.saved_connections) {
+                        // Save to settings.toml
+                        self.settings_manager.settings_mut().connections = self.saved_connections.clone();
+                        if let Err(e) = self.settings_manager.save() {
                             // TODO: Show error message to user
                             println!("Failed to save connection: {}", e);
                         } else {
@@ -425,6 +492,167 @@ impl DatabaseIDE {
                 // TODO: Implement specific handlers for each component action variant
                 println!("Component action: {:?}", action);
                 Task::none()
+            }
+            Message::ShowSettings => {
+                self.showing_settings_editor = true;
+                self.settings_editor_data = SettingsEditorData::from_manager(&self.settings_manager);
+                self.settings_validation_error = None;
+                self.settings_success_message = None;
+                Task::none()
+            }
+            Message::SettingsEditor(editor_message) => {
+                match editor_message {
+                    SettingsEditorMessage::Cancel => {
+                        self.showing_settings_editor = false;
+                        Task::none()
+                    }
+                    // Logging settings
+                    SettingsEditorMessage::FilterChanged(value) => {
+                        self.settings_editor_data.logging.filter = value;
+                        Task::none()
+                    }
+                    SettingsEditorMessage::ConsoleFilterChanged(value) => {
+                        self.settings_editor_data.logging.console_filter = if value.is_empty() {
+                            None
+                        } else {
+                            Some(value)
+                        };
+                        Task::none()
+                    }
+                    SettingsEditorMessage::FileFilterChanged(value) => {
+                        self.settings_editor_data.logging.file_filter = if value.is_empty() {
+                            None
+                        } else {
+                            Some(value)
+                        };
+                        Task::none()
+                    }
+                    SettingsEditorMessage::ConsoleFormatChanged(format) => {
+                        self.settings_editor_data.logging.console_format = format;
+                        Task::none()
+                    }
+                    SettingsEditorMessage::ConsoleWriterChanged(writer) => {
+                        self.settings_editor_data.logging.console_writer = writer;
+                        Task::none()
+                    }
+                    SettingsEditorMessage::ConsoleEnabledToggled => {
+                        self.settings_editor_data.logging.console_enabled = !self.settings_editor_data.logging.console_enabled;
+                        Task::none()
+                    }
+                    SettingsEditorMessage::FileFormatChanged(format) => {
+                        self.settings_editor_data.logging.file_format = format;
+                        Task::none()
+                    }
+                    SettingsEditorMessage::FileEnabledToggled => {
+                        self.settings_editor_data.logging.file_enabled = !self.settings_editor_data.logging.file_enabled;
+                        Task::none()
+                    }
+                    SettingsEditorMessage::FileDirectoryChanged(value) => {
+                        self.settings_editor_data.logging.file_directory = value;
+                        Task::none()
+                    }
+                    SettingsEditorMessage::FilePrefixChanged(value) => {
+                        self.settings_editor_data.logging.file_prefix = value;
+                        Task::none()
+                    }
+                    SettingsEditorMessage::RotationPolicyChanged(policy) => {
+                        self.settings_editor_data.logging.rotation_policy = policy;
+                        Task::none()
+                    }
+                    // UI preferences
+                    SettingsEditorMessage::ThemeChanged(value) => {
+                        self.settings_editor_data.ui_preferences.theme = value;
+                        Task::none()
+                    }
+                    SettingsEditorMessage::PanelWidthChanged(value) => {
+                        // Parse string to u32, keep current value if parse fails
+                        if let Ok(width) = value.parse::<u32>() {
+                            self.settings_editor_data.ui_preferences.panel_width = width;
+                        }
+                        Task::none()
+                    }
+                    SettingsEditorMessage::ShowLeftPanelToggled => {
+                        self.settings_editor_data.ui_preferences.show_left_panel = !self.settings_editor_data.ui_preferences.show_left_panel;
+                        Task::none()
+                    }
+                    SettingsEditorMessage::Save => {
+                        // Update settings_manager with edited values
+                        self.settings_manager.settings_mut().logging = self.settings_editor_data.logging.clone();
+                        self.settings_manager.settings_mut().ui_preferences = self.settings_editor_data.ui_preferences.clone();
+
+                        // Validate settings
+                        if let Err(e) = self.settings_manager.validate() {
+                            self.settings_validation_error = Some(e.to_string());
+                            self.settings_success_message = None;
+                            return Task::none();
+                        }
+
+                        // Save settings to disk
+                        if let Err(e) = self.settings_manager.save() {
+                            self.settings_validation_error = Some(format!("Failed to save: {}", e));
+                            self.settings_success_message = None;
+                            return Task::none();
+                        }
+
+                        // Rebuild and apply logging configuration
+                        if let Ok(logging_config) = build_logging_config(&self.settings_manager.settings().logging) {
+                            if let Err(e) = logging_config.apply() {
+                                self.settings_validation_error = Some(format!("Failed to reload logging: {}", e));
+                                self.settings_success_message = None;
+                                return Task::none();
+                            }
+                        } else {
+                            self.settings_validation_error = Some("Invalid logging configuration".to_string());
+                            self.settings_success_message = None;
+                            return Task::none();
+                        }
+
+                        // Update DatabaseIDE UI fields from new settings
+                        let ui_prefs = &self.settings_manager.settings().ui_preferences;
+                        self.panel_width = ui_prefs.panel_width as f32;
+                        self.show_left_panel = ui_prefs.show_left_panel;
+
+                        // Update theme if changed
+                        let new_theme = if ui_prefs.theme == "dark" {
+                            ThemeColors::dark()
+                        } else {
+                            ThemeColors::dark() // TODO: Add ThemeColors::light()
+                        };
+                        self.theme = new_theme;
+
+                        // Update all components with new theme
+                        self.menu_bar = MenuBar::new(new_theme);
+                        self.left_panel = LeftPanel::new(new_theme);
+                        self.status_bar = StatusBar::new(new_theme);
+                        self.connection_form = ConnectionForm::new(new_theme);
+                        self.settings_editor = SettingsEditor::new(new_theme);
+
+                        // Show success and close editor
+                        self.settings_success_message = Some("Settings saved successfully".to_string());
+                        self.settings_validation_error = None;
+                        self.showing_settings_editor = false;
+
+                        Task::none()
+                    }
+                    SettingsEditorMessage::Reload => {
+                        // Reload settings from disk
+                        if let Err(e) = self.settings_manager.reload() {
+                            self.settings_validation_error = Some(format!("Failed to reload: {}", e));
+                            self.settings_success_message = None;
+                            return Task::none();
+                        }
+
+                        // Reset editor data from reloaded settings
+                        self.settings_editor_data = SettingsEditorData::from_manager(&self.settings_manager);
+
+                        // Clear errors and show success
+                        self.settings_validation_error = None;
+                        self.settings_success_message = Some("Settings reloaded from disk".to_string());
+
+                        // Keep settings editor open (don't close)
+                        Task::none()
+                    }
+                }
             }
         }
     }
@@ -568,7 +796,14 @@ impl DatabaseIDE {
     }
 
     fn main_panel(&self) -> Element<'_, Message> {
-        if self.showing_connection_form {
+        if self.showing_settings_editor {
+            self.settings_editor.view(
+                &self.settings_editor_data,
+                &self.settings_validation_error,
+                &self.settings_success_message,
+                Message::SettingsEditor,
+            )
+        } else if self.showing_connection_form {
             self.connection_form.view(
                 &self.connection_form_data,
                 Message::ConnectionForm,

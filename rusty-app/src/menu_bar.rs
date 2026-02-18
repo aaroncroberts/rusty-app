@@ -103,6 +103,7 @@ pub enum ViewMenuItem {
     Properties,
     QueryEditor,
     ConnectionManager,
+    Settings,
 }
 
 impl ViewMenuItem {
@@ -114,6 +115,7 @@ impl ViewMenuItem {
             ViewMenuItem::Properties => "Properties",
             ViewMenuItem::QueryEditor => "Query Editor",
             ViewMenuItem::ConnectionManager => "Connection Manager",
+            ViewMenuItem::Settings => "Settings...",
         }
     }
 
@@ -125,12 +127,13 @@ impl ViewMenuItem {
             ViewMenuItem::Properties,
             ViewMenuItem::QueryEditor,
             ViewMenuItem::ConnectionManager,
+            ViewMenuItem::Settings,
         ]
     }
 
     /// Map ViewMenuItem to ComponentId
     ///
-    /// Returns None for ToggleLeftPanel (not a component),
+    /// Returns None for ToggleLeftPanel and Settings (not components),
     /// returns Some(ComponentId) for all component views.
     pub fn as_component_id(&self) -> Option<crate::components::ComponentId> {
         use crate::components::ComponentId;
@@ -141,6 +144,7 @@ impl ViewMenuItem {
             ViewMenuItem::Properties => Some(ComponentId::Properties),
             ViewMenuItem::QueryEditor => Some(ComponentId::Editor),
             ViewMenuItem::ConnectionManager => Some(ComponentId::ConnectionForm),
+            ViewMenuItem::Settings => None,
         }
     }
 }

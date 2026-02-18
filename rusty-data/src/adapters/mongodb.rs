@@ -85,7 +85,8 @@ impl MongoDbAdapter {
         let password = password;
 
         if let (Some(user), Some(pass)) = (username, password) {
-            format!("mongodb://{}:{}@{}:{}", user, pass, host, port)
+            // Include authSource=admin for root user authentication
+            format!("mongodb://{}:{}@{}:{}/?authSource=admin", user, pass, host, port)
         } else {
             format!("mongodb://{}:{}", host, port)
         }
@@ -294,21 +295,209 @@ impl DatabaseAdapter for MongoDbAdapter {
             DataError::Query(format!("Invalid MongoDB query format: {}. Expected JSON document with 'collection' and 'filter' fields", e))
         })?;
 
+        let db = client.database(db_name);
+
+        // Check for operation type (createView doesn't use "collection" field)
+        let operation = command.get_str("operation").unwrap_or("find");
+
+        // Handle createView specially (it uses "viewName" instead of "collection")
+        if operation == "createView" {
+            let view_name = command
+                .get_str("viewName")
+                .map_err(|_| DataError::Query("Missing 'viewName' field for createView operation".to_string()))?;
+
+            let view_on = command
+                .get_str("viewOn")
+                .map_err(|_| DataError::Query("Missing 'viewOn' field for createView operation".to_string()))?;
+
+            let pipeline = command
+                .get_array("pipeline")
+                .map_err(|_| DataError::Query("Missing 'pipeline' field for createView operation".to_string()))?
+                .iter()
+                .filter_map(|d| d.as_document())
+                .cloned()
+                .collect::<Vec<Document>>();
+
+            if pipeline.is_empty() {
+                return Err(DataError::Query("Pipeline must contain at least one valid document".to_string()));
+            }
+
+            Self::validate_collection_name(view_name)?;
+            Self::validate_collection_name(view_on)?;
+
+            use mongodb::options::CreateCollectionOptions;
+            let mut options = CreateCollectionOptions::default();
+            options.view_on = Some(view_on.to_string());
+            options.pipeline = Some(pipeline);
+
+            db.create_collection(view_name, options).await.map_err(|e| {
+                DataError::Query(format!("Create view failed: {}", e))
+            })?;
+
+            let elapsed = start.elapsed();
+            info!(
+                view_name = %view_name,
+                view_on = %view_on,
+                elapsed_ms = elapsed.as_millis(),
+                "Create view operation completed"
+            );
+
+            return Ok(QueryResult {
+                columns: vec![],
+                rows: vec![],
+                rows_affected: Some(0),
+            });
+        }
+
+        // All other operations require collection field
         let collection_name = command
             .get_str("collection")
             .map_err(|_| DataError::Query("Missing 'collection' field in query".to_string()))?;
 
         Self::validate_collection_name(collection_name)?;
 
-        let filter = command
-            .get_document("filter")
-            .unwrap_or(&Document::new())
-            .clone();
-
-        let db = client.database(db_name);
         let collection = db.collection::<Document>(collection_name);
 
-        let mut cursor = collection
+        match operation {
+            "insert" => {
+                // Handle insert operation
+                let document = command
+                    .get_document("document")
+                    .map_err(|_| DataError::Query("Missing 'document' field for insert operation".to_string()))?
+                    .clone();
+
+                collection.insert_one(document, None).await.map_err(|e| {
+                    DataError::Query(format!("Insert failed: {}", e))
+                })?;
+
+                let elapsed = start.elapsed();
+                info!(
+                    collection = %collection_name,
+                    elapsed_ms = elapsed.as_millis(),
+                    "Insert operation completed"
+                );
+
+                return Ok(QueryResult {
+                    columns: vec![],
+                    rows: vec![],
+                    rows_affected: Some(1),
+                });
+            }
+            "insertMany" => {
+                // Handle insert many operation
+                let documents = command
+                    .get_array("documents")
+                    .map_err(|_| DataError::Query("Missing 'documents' field for insertMany operation".to_string()))?
+                    .iter()
+                    .filter_map(|d| d.as_document())
+                    .cloned()
+                    .collect::<Vec<Document>>();
+
+                if documents.is_empty() {
+                    return Err(DataError::Query("No valid documents to insert".to_string()));
+                }
+
+                let count = documents.len();
+                collection.insert_many(documents, None).await.map_err(|e| {
+                    DataError::Query(format!("InsertMany failed: {}", e))
+                })?;
+
+                let elapsed = start.elapsed();
+                info!(
+                    collection = %collection_name,
+                    count = count,
+                    elapsed_ms = elapsed.as_millis(),
+                    "InsertMany operation completed"
+                );
+
+                return Ok(QueryResult {
+                    columns: vec![],
+                    rows: vec![],
+                    rows_affected: Some(count as u64),
+                });
+            }
+            "update" => {
+                // Handle update operation
+                let filter = command
+                    .get_document("filter")
+                    .map_err(|_| DataError::Query("Missing 'filter' field for update operation".to_string()))?
+                    .clone();
+
+                let update = command
+                    .get_document("update")
+                    .map_err(|_| DataError::Query("Missing 'update' field for update operation".to_string()))?
+                    .clone();
+
+                let result = collection.update_many(filter, update, None).await.map_err(|e| {
+                    DataError::Query(format!("Update failed: {}", e))
+                })?;
+
+                let elapsed = start.elapsed();
+                info!(
+                    collection = %collection_name,
+                    modified = result.modified_count,
+                    elapsed_ms = elapsed.as_millis(),
+                    "Update operation completed"
+                );
+
+                return Ok(QueryResult {
+                    columns: vec![],
+                    rows: vec![],
+                    rows_affected: Some(result.modified_count),
+                });
+            }
+            "delete" => {
+                // Handle delete operation
+                let filter = command
+                    .get_document("filter")
+                    .map_err(|_| DataError::Query("Missing 'filter' field for delete operation".to_string()))?
+                    .clone();
+
+                let result = collection.delete_many(filter, None).await.map_err(|e| {
+                    DataError::Query(format!("Delete failed: {}", e))
+                })?;
+
+                let elapsed = start.elapsed();
+                info!(
+                    collection = %collection_name,
+                    deleted = result.deleted_count,
+                    elapsed_ms = elapsed.as_millis(),
+                    "Delete operation completed"
+                );
+
+                return Ok(QueryResult {
+                    columns: vec![],
+                    rows: vec![],
+                    rows_affected: Some(result.deleted_count),
+                });
+            }
+            "drop" => {
+                // Handle drop collection operation
+                collection.drop(None).await.map_err(|e| {
+                    DataError::Query(format!("Drop collection failed: {}", e))
+                })?;
+
+                let elapsed = start.elapsed();
+                info!(
+                    collection = %collection_name,
+                    elapsed_ms = elapsed.as_millis(),
+                    "Drop collection completed"
+                );
+
+                return Ok(QueryResult {
+                    columns: vec![],
+                    rows: vec![],
+                    rows_affected: Some(0),
+                });
+            }
+            "find" | _ => {
+                // Handle find operation (default)
+                let filter = command
+                    .get_document("filter")
+                    .unwrap_or(&Document::new())
+                    .clone();
+
+                let mut cursor = collection
             .find(filter, None)
             .await
             .map_err(|e| {
@@ -400,11 +589,13 @@ impl DatabaseAdapter for MongoDbAdapter {
             "Query executed successfully"
         );
 
-        Ok(QueryResult {
-            columns,
-            rows: result_rows,
-            rows_affected: Some(row_count as u64),
-        })
+                Ok(QueryResult {
+                    columns,
+                    rows: result_rows,
+                    rows_affected: Some(row_count as u64),
+                })
+            }
+        }
     }
 
     #[instrument(skip(self))]
@@ -664,7 +855,14 @@ impl DatabaseAdapter for MongoDbAdapter {
             })?;
 
         let size_bytes = coll_stats.get_i64("size").ok();
-        let row_count = coll_stats.get_i64("count").ok();
+
+        // Get accurate document count using count_documents
+        let collection = db.collection::<Document>(table_name);
+        let row_count = collection
+            .count_documents(doc! {}, None)
+            .await
+            .map(|count| count as i64)
+            .ok();
 
         let table_type = if let Ok(view_on) = coll_stats.get_str("viewOn") {
             Some(format!("view (on: {})", view_on))
@@ -845,11 +1043,20 @@ impl DatabaseAdapter for MongoDbAdapter {
             let view_doc = cursor.current();
 
             if let Ok(options) = view_doc.get_document("options") {
-                if let Ok(pipeline) = options.get_array("pipeline") {
-                    return Ok(Some(format!("{:?}", pipeline)));
-                }
-                if let Ok(view_on) = options.get_str("viewOn") {
-                    return Ok(Some(format!("View on collection: {}", view_on)));
+                let view_on = options.get_str("viewOn").ok();
+                let pipeline = options.get_array("pipeline").ok();
+
+                match (view_on, pipeline) {
+                    (Some(vo), Some(p)) => {
+                        return Ok(Some(format!("View on collection: {}\nPipeline: {:?}", vo, p)));
+                    }
+                    (Some(vo), None) => {
+                        return Ok(Some(format!("View on collection: {}", vo)));
+                    }
+                    (None, Some(p)) => {
+                        return Ok(Some(format!("Pipeline: {:?}", p)));
+                    }
+                    _ => {}
                 }
             }
         }

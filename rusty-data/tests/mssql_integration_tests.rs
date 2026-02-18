@@ -46,8 +46,17 @@ async fn ensure_test_database() -> Result<()> {
     adapter.connect(&master_config, Some(TEST_PASSWORD)).await?;
     info!("Creating MSSQL test database: {}", TEST_DB_NAME);
 
-    // Drop database if exists, then create
-    let _ = adapter.execute_query(&format!("DROP DATABASE IF EXISTS {}", TEST_DB_NAME)).await;
+    // Try to set database to single user mode and drop it (ignore errors if it doesn't exist)
+    let _ = adapter.execute_query(&format!(
+        "IF EXISTS (SELECT name FROM sys.databases WHERE name = '{}')
+         BEGIN
+             ALTER DATABASE {} SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+             DROP DATABASE {};
+         END",
+        TEST_DB_NAME, TEST_DB_NAME, TEST_DB_NAME
+    )).await;
+
+    // Create the database
     adapter.execute_query(&format!("CREATE DATABASE {}", TEST_DB_NAME)).await?;
 
     adapter.disconnect().await?;
@@ -71,6 +80,9 @@ async fn setup() -> Result<MssqlAdapter> {
 #[ignore]
 async fn test_mssql_connect_disconnect() -> Result<()> {
     info!("Starting test: test_mssql_connect_disconnect");
+
+    // Ensure database exists
+    ensure_test_database().await?;
 
     let mut adapter = MssqlAdapter::new();
     let config = get_mssql_config(TEST_DB_NAME);
@@ -512,11 +524,7 @@ async fn test_mssql_get_views() -> Result<()> {
         .await?;
 
     adapter
-        .execute_query(
-            "CREATE VIEW test_mssql_my_view AS
-            SELECT id, value * 2 AS doubled
-            FROM test_mssql_view_source",
-        )
+        .execute_query("CREATE VIEW dbo.test_mssql_my_view AS SELECT id, value * 2 AS doubled FROM dbo.test_mssql_view_source")
         .await?;
 
     // Get views
@@ -559,15 +567,7 @@ async fn test_mssql_list_stored_procedures() -> Result<()> {
     // Create test stored procedure
     info!("Creating test stored procedure");
     adapter
-        .execute_query(
-            "CREATE PROCEDURE test_add_numbers
-                @a INT,
-                @b INT
-            AS
-            BEGIN
-                SELECT @a + @b AS result
-            END",
-        )
+        .execute_query("CREATE PROCEDURE dbo.test_add_numbers @a INT, @b INT AS BEGIN SELECT @a + @b AS result END")
         .await?;
 
     // List procedures

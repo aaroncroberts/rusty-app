@@ -319,6 +319,45 @@ impl DatabaseAdapter for MySqlAdapter {
         );
         let start = std::time::Instant::now();
 
+        // Check if this is a DDL statement that doesn't work with prepared statements
+        // MySQL doesn't support CREATE PROCEDURE, CREATE FUNCTION, DROP PROCEDURE, DROP FUNCTION in prepared statements
+        let query_upper = query.trim().to_uppercase();
+        let needs_simple_execution = query_upper.starts_with("CREATE PROCEDURE")
+            || query_upper.starts_with("CREATE FUNCTION")
+            || query_upper.starts_with("DROP PROCEDURE")
+            || query_upper.starts_with("DROP FUNCTION");
+
+        if needs_simple_execution {
+            // Execute as simple statement using raw connection
+            use sqlx::Executor;
+            let mut conn = pool.acquire().await.map_err(|e| {
+                DataError::Connection(format!("Failed to acquire connection: {}", e))
+            })?;
+
+            conn.execute(query).await.map_err(|e| {
+                let elapsed = start.elapsed();
+                warn!(
+                    error = %e,
+                    query_snippet = %query_snippet,
+                    elapsed_ms = elapsed.as_millis(),
+                    "Simple query execution failed"
+                );
+                DataError::Query(format!("Query failed: {} - {}", query_snippet, e))
+            })?;
+
+            let elapsed = start.elapsed();
+            info!(
+                elapsed_ms = elapsed.as_millis(),
+                "DDL statement executed successfully"
+            );
+
+            return Ok(QueryResult {
+                columns: vec![],
+                rows: vec![],
+                rows_affected: Some(0),
+            });
+        }
+
         let rows = sqlx::query(query)
             .fetch_all(pool)
             .await
@@ -823,8 +862,7 @@ impl DatabaseAdapter for MySqlAdapter {
             SELECT
                 ROUTINE_NAME as name,
                 ROUTINE_SCHEMA as schema_name,
-                DTD_IDENTIFIER as return_type,
-                ROUTINE_TYPE as routine_type
+                DTD_IDENTIFIER as return_type
             FROM INFORMATION_SCHEMA.ROUTINES
             WHERE ROUTINE_SCHEMA = DATABASE()
             ORDER BY ROUTINE_NAME
@@ -841,7 +879,7 @@ impl DatabaseAdapter for MySqlAdapter {
                 name: row.try_get("name").unwrap_or_default(),
                 schema: row.try_get("schema_name").ok(),
                 return_type: row.try_get("return_type").ok(),
-                language: row.try_get("routine_type").ok(),
+                language: Some("SQL".to_string()), // MySQL only supports SQL
             });
         }
 
