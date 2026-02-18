@@ -3,19 +3,20 @@ use crate::adapter::{
     TableInfo,
 };
 use crate::error::{DataError, Result};
+use crate::pool::Pool;
 use async_trait::async_trait;
 use oracle::{Connection, Row};
 use tracing::{debug, info, instrument, warn};
 
 /// Oracle database adapter
 pub struct OracleAdapter {
-    connection: Option<Connection>,
+    pool: Option<Pool<Connection>>,
 }
 
 impl OracleAdapter {
     /// Create a new Oracle adapter
     pub fn new() -> Self {
-        Self { connection: None }
+        Self { pool: None }
     }
 
     /// Build a connection string from configuration
@@ -25,6 +26,54 @@ impl OracleAdapter {
         let database = &config.database; // This is the service name or SID
 
         format!("{}:{}/{}", host, port, database)
+    }
+
+    /// Execute a query in a blocking context
+    /// This is a static method to avoid lifetime issues with spawn_blocking
+    fn execute_blocking(pool: Pool<Connection>, query: String) -> Result<QueryResult> {
+        // Get the connection from the pool in the blocking context
+        let conn_guard = futures::executor::block_on(pool.lock());
+        
+        // Execute the query
+        let mut stmt = conn_guard.statement(&query).build()
+            .map_err(|e| DataError::Query(format!("Failed to prepare statement: {}", e)))?;
+        
+        let mut result_set = stmt.query(&[])
+            .map_err(|e| DataError::Query(format!("Query failed: {}", e)))?;
+
+        // Get column information
+        let column_info = result_set.column_info();
+        let columns: Vec<String> = column_info.iter()
+            .map(|col| col.name().to_string())
+            .collect();
+        
+        let column_count = columns.len();
+
+        // Collect rows
+        let mut rows = Vec::new();
+        for row_result in &mut result_set {
+            let row = row_result.map_err(|e| {
+                DataError::Query(format!("Failed to fetch row: {}", e))
+            })?;
+            let values = Self::row_to_values(&row, column_count)?;
+            rows.push(values);
+        }
+
+        let _row_count = rows.len() as u64;
+
+        // For DML statements (INSERT, UPDATE, DELETE), rows will be empty
+        // Oracle doesn't easily provide rows_affected without additional work
+        let rows_affected = if rows.is_empty() {
+            Some(0) // Placeholder - would need ROW_COUNT or similar
+        } else {
+            None // SELECT query
+        };
+
+        Ok(QueryResult {
+            columns,
+            rows,
+            rows_affected,
+        })
     }
 
     /// Convert a row to a vector of QueryValues
@@ -115,42 +164,51 @@ impl DatabaseAdapter for OracleAdapter {
             DataError::Connection(format!("Failed to connect: {}", e))
         })?;
 
-        self.connection = Some(connection);
+        self.pool = Some(Pool::new(connection));
         info!("Successfully connected to Oracle");
         Ok(())
     }
 
     #[instrument(skip(self))]
     async fn disconnect(&mut self) -> Result<()> {
-        if let Some(conn) = self.connection.take() {
+        if let Some(_pool) = self.pool.take() {
             info!("Disconnecting from Oracle");
-            tokio::task::spawn_blocking(move || {
-                let _ = conn.close();
-            })
-            .await
-            .map_err(|e| DataError::Connection(format!("Failed to disconnect: {}", e)))?;
+            // Pool will be dropped here, which will close the connection
         }
         Ok(())
     }
 
     fn is_connected(&self) -> bool {
-        self.connection.is_some()
+        self.pool.is_some()
+    }
+
+    #[instrument(skip_all)]
+    async fn execute_query(&self, query: &str) -> Result<QueryResult> {
+        debug!("Executing Oracle query");
+
+        // Clone pool and drop borrow of self immediately
+        let pool = {
+            let pool_ref = self.pool.as_ref()
+                .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+            pool_ref.clone()
+        };
+        
+        let query = query.to_string();
+
+        // Oracle is synchronous, so we run queries in a blocking task
+        let result = tokio::task::spawn_blocking(move || {
+            Self::execute_blocking(pool.clone(), query)
+        })
+        .await
+        .map_err(|e| {
+            warn!(error = %e, "Task join error");
+            DataError::Query(format!("Failed to execute query: {}", e))
+        })??;
+
+        Ok(result)
     }
 
     #[instrument(skip(self))]
-    async fn execute_query(&self, _query: &str) -> Result<QueryResult> {
-        debug!("Executing Oracle query");
-
-        // Oracle adapter is not fully implemented for async operations
-        // The oracle crate is synchronous and doesn't play well with tokio
-        // For now, return an error indicating this needs more work
-        Err(DataError::Query(
-            "Oracle adapter requires a connection pool implementation for async support. \
-             This is a known limitation and will be addressed in a future update."
-                .to_string(),
-        ))
-    }
-
     async fn list_databases(&self) -> Result<Vec<String>> {
         // Oracle doesn't have a simple "list databases" concept like other RDBMS
         // Instead, it has schemas/users
@@ -171,6 +229,7 @@ impl DatabaseAdapter for OracleAdapter {
             })
     }
 
+    #[instrument(skip(self))]
     async fn list_tables(&self, schema: Option<&str>) -> Result<Vec<String>> {
         let query = if let Some(schema_name) = schema {
             format!(
@@ -196,6 +255,7 @@ impl DatabaseAdapter for OracleAdapter {
         })
     }
 
+    #[instrument(skip(self), fields(table = %table_name))]
     async fn describe_table(&self, table_name: &str, schema: Option<&str>) -> Result<TableInfo> {
         let query = if let Some(schema_name) = schema {
             format!(

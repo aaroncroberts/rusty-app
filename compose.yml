@@ -1,0 +1,110 @@
+# Database Test Containers for rusty-app Integration Tests
+# Use with: podman-compose up -d
+#
+# All databases are configured with test credentials and exposed on standard ports.
+# Health checks ensure databases are ready before running tests.
+
+version: '3.8'
+
+services:
+  # PostgreSQL - Port 5432
+  postgres:
+    image: docker.io/library/postgres:16-alpine
+    container_name: rusty-test-postgres
+    environment:
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: test_db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_user -d test_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # MySQL - Port 3306
+  mysql:
+    image: docker.io/library/mysql:8.0
+    container_name: rusty-test-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: test_db
+      MYSQL_USER: test_user
+      MYSQL_PASSWORD: test_password
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "test_user", "-ptest_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  # Microsoft SQL Server - Port 1433
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: rusty-test-mssql
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: "Test_Password123!"
+      MSSQL_PID: "Developer"
+    ports:
+      - "1433:1433"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Test_Password123!' -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    volumes:
+      - mssql_data:/var/opt/mssql
+
+  # Oracle Database - Port 1521
+  # Using Oracle XE (Express Edition) - free for development
+  oracle:
+    image: container-registry.oracle.com/database/express:21.3.0-xe
+    container_name: rusty-test-oracle
+    environment:
+      ORACLE_PWD: "Test_Password123!"
+      ORACLE_CHARACTERSET: "AL32UTF8"
+    ports:
+      - "1521:1521"
+      - "5500:5500"  # Oracle Enterprise Manager
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'SELECT 1 FROM DUAL;' | sqlplus -s system/Test_Password123!@//localhost:1521/XE || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    volumes:
+      - oracle_data:/opt/oracle/oradata
+    shm_size: 1gb
+
+  # MongoDB - Port 27017
+  mongodb:
+    image: docker.io/library/mongo:7
+    container_name: rusty-test-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: test_user
+      MONGO_INITDB_ROOT_PASSWORD: test_password
+      MONGO_INITDB_DATABASE: test_db
+    ports:
+      - "27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - mongodb_data:/data/db
+
+volumes:
+  postgres_data: {}
+  mysql_data: {}
+  mssql_data: {}
+  oracle_data: {}
+  mongodb_data: {}

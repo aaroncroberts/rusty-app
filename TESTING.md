@@ -1,210 +1,240 @@
-# Testing Guide for rusty-app Database Adapters
+# Integration Testing with Test Databases
 
-This guide explains how to test the database adapters with real databases using Podman.
+This document describes how to run integration tests for rusty-data database adapters using Podman containers.
 
 ## Prerequisites
 
-- **Podman** installed and running
-- **podman-compose** installed (optional, for convenience)
+- [Podman](https://podman.io/getting-started/installation) installed
+- [podman-compose](https://github.com/containers/podman-compose) installed
 
-Install podman-compose:
 ```bash
+# Install podman-compose (if not already installed)
 pip3 install podman-compose
-# OR
-brew install podman-compose  # macOS
 ```
 
-## Quick Start
+## Starting Test Databases
 
-### Start Test Databases
+The `compose.yml` file provides test database containers for all supported database systems.
 
-Using podman-compose (recommended):
+### Start all databases
+
 ```bash
 podman-compose up -d
 ```
 
-Using podman directly:
-```bash
-# PostgreSQL
-podman run -d \
-  --name rusty-app-postgres \
-  -e POSTGRES_USER=rusty_user \
-  -e POSTGRES_PASSWORD=rusty_pass \
-  -e POSTGRES_DB=rusty_test \
-  -p 5432:5432 \
-  -v ./test-data/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro \
-  docker.io/library/postgres:16-alpine
-
-# MySQL
-podman run -d \
-  --name rusty-app-mysql \
-  -e MYSQL_ROOT_PASSWORD=root_pass \
-  -e MYSQL_DATABASE=rusty_test \
-  -e MYSQL_USER=rusty_user \
-  -e MYSQL_PASSWORD=rusty_pass \
-  -p 3306:3306 \
-  -v ./test-data/mysql-init.sql:/docker-entrypoint-initdb.d/init.sql:ro \
-  docker.io/library/mysql:8
-```
-
-### Verify Databases Are Running
+### Start specific database(s)
 
 ```bash
-podman ps
+podman-compose up -d postgres mysql
 ```
 
-You should see containers for both PostgreSQL and MySQL.
-
-### Check Database Health
+### Check container status
 
 ```bash
-# PostgreSQL
-podman exec rusty-app-postgres pg_isready -U rusty_user -d rusty_test
-
-# MySQL
-podman exec rusty-app-mysql mysqladmin ping -h localhost -u rusty_user -prusty_pass
+podman-compose ps
 ```
 
-## Connection Details
+### View logs
 
-### PostgreSQL
+```bash
+# All containers
+podman-compose logs
+
+# Specific container
+podman-compose logs postgres
+```
+
+## Database Connection Details
+
+All databases are configured with test credentials:
+
+### PostgreSQL (Port 5432)
 - **Host**: localhost
 - **Port**: 5432
-- **Database**: rusty_test
-- **Username**: rusty_user
-- **Password**: rusty_pass
-- **Connection String**: `postgresql://rusty_user:rusty_pass@localhost:5432/rusty_test`
+- **Database**: test_db
+- **User**: test_user
+- **Password**: test_password
 
-### MySQL
+### MySQL (Port 3306)
 - **Host**: localhost
 - **Port**: 3306
-- **Database**: rusty_test
-- **Username**: rusty_user
-- **Password**: rusty_pass
-- **Connection String**: `mysql://rusty_user:rusty_pass@localhost:3306/rusty_test`
+- **Database**: test_db
+- **User**: test_user
+- **Password**: test_password
+- **Root Password**: root_password
 
-### SQLite
-- **File**: `./test-data/rusty_test.db`
-- No container needed (file-based)
+### Microsoft SQL Server (Port 1433)
+- **Host**: localhost
+- **Port**: 1433
+- **Database**: master (default)
+- **User**: sa
+- **Password**: Test_Password123!
 
-## Test Data
+### Oracle Database XE (Port 1521)
+- **Host**: localhost
+- **Port**: 1521
+- **Service Name**: XE
+- **User**: system
+- **Password**: Test_Password123!
+- **Enterprise Manager**: http://localhost:5500/em
 
-Both PostgreSQL and MySQL are initialized with the same test schema:
+### MongoDB (Port 27017)
+- **Host**: localhost
+- **Port**: 27017
+- **Database**: test_db
+- **User**: test_user
+- **Password**: test_password
+- **Auth Database**: admin
 
-### Tables
-- **users**: id, username, email, created_at, is_active
-- **products**: id, name, description, price, stock, created_at
-- **orders**: id, user_id, total_amount, status, created_at
+## Running Integration Tests
 
-### Sample Queries
-
-```sql
--- List all users
-SELECT * FROM users;
-
--- Products with low stock
-SELECT * FROM products WHERE stock < 30;
-
--- Orders by user
-SELECT o.id, u.username, o.total_amount, o.status
-FROM orders o
-JOIN users u ON o.user_id = u.id;
-```
-
-## Running Tests
-
-### Integration Tests
+### Run all integration tests
 
 ```bash
-# Test all adapters with real databases
-cargo test --package rusty-data --features all-databases -- --test-threads=1
-
-# Test specific adapter
-cargo test --package rusty-data --features postgres postgres
-cargo test --package rusty-data --features mysql mysql
-cargo test --package rusty-data --features sqlite sqlite
+cargo test --features all-databases -- --test-threads=1
 ```
 
-### Manual Testing
-
-Create a test connection configuration:
-```bash
-cargo run --package rusty-data --example test_connection
-```
-
-## Troubleshooting
-
-### Port Already in Use
-
-If ports 5432 or 3306 are already in use:
-```bash
-# Check what's using the port
-lsof -i :5432
-lsof -i :3306
-
-# Stop conflicting services
-brew services stop postgresql  # macOS PostgreSQL
-brew services stop mysql       # macOS MySQL
-```
-
-Or modify `docker-compose.yml` to use different ports:
-```yaml
-ports:
-  - "5433:5432"  # Use port 5433 instead of 5432
-```
-
-### Container Won't Start
-
-Check logs:
-```bash
-podman-compose logs postgres
-podman-compose logs mysql
-```
-
-### Reset Database
+### Run tests for specific database
 
 ```bash
-# Stop and remove containers
-podman-compose down -v
+# PostgreSQL
+cargo test --features postgres -- --test-threads=1
 
-# Restart fresh
-podman-compose up -d
+# MySQL
+cargo test --features mysql -- --test-threads=1
+
+# SQLite (no container needed)
+cargo test --features sqlite
+
+# MongoDB
+cargo test --features mongodb -- --test-threads=1
+
+# SQL Server
+cargo test --features mssql -- --test-threads=1
+
+# Oracle
+cargo test --features oracle -- --test-threads=1
 ```
 
-## Cleanup
+**Note**: The `--test-threads=1` flag ensures tests run sequentially to avoid database connection conflicts.
 
-### Stop Databases
+## Health Checks
+
+All containers include health checks. Wait for all services to be healthy before running tests:
+
+```bash
+# Check health status
+podman-compose ps
+
+# Wait for all containers to be healthy
+while ! podman-compose ps | grep -q "healthy"; do
+  echo "Waiting for databases to be healthy..."
+  sleep 2
+done
+```
+
+## Stopping and Cleaning Up
+
+### Stop containers (keep data)
+
+```bash
+podman-compose stop
+```
+
+### Stop and remove containers (keep volumes)
 
 ```bash
 podman-compose down
 ```
 
-### Remove All Data (including volumes)
+### Remove containers and volumes (clean slate)
 
 ```bash
 podman-compose down -v
 ```
 
-### Remove Individual Containers
+## Troubleshooting
+
+### Oracle container fails to start
+
+Oracle XE requires significant memory and startup time (60+ seconds). Check:
 
 ```bash
-podman stop rusty-app-postgres rusty-app-mysql
-podman rm rusty-app-postgres rusty-app-mysql
-podman volume rm rusty-app-postgres-data rusty-app-mysql-data
+# View Oracle logs
+podman-compose logs oracle
+
+# Increase shm_size if needed (already set to 1GB in compose.yml)
 ```
 
-## Development Workflow
+### MSSQL health check fails
 
-1. **Start databases**: `podman-compose up -d`
-2. **Develop adapters**: Edit code in `rusty-data/src/adapters/`
-3. **Run tests**: `cargo test --package rusty-data --features all-databases`
-4. **Check logs**: View application logs in `./logs/rusty-app.log`
-5. **Stop databases**: `podman-compose down` (when done)
+MSSQL tools take time to initialize. Wait 30-60 seconds and check:
 
-## Notes
+```bash
+podman-compose logs mssql
+```
 
-- Podman is daemonless and rootless, making it a secure Docker alternative
-- podman-compose is compatible with docker-compose.yml syntax
-- Test data is automatically loaded on first container start
-- Volumes persist data between container restarts
-- Use `podman-compose down -v` to reset to fresh state
+### Port conflicts
+
+If ports are already in use, modify `compose.yml` to use different host ports:
+
+```yaml
+ports:
+  - "15432:5432"  # Use port 15432 instead of 5432
+```
+
+## Writing Integration Tests
+
+Integration tests should:
+
+1. Check if the test database is available (skip if not)
+2. Create test data
+3. Run adapter operations
+4. Clean up test data
+5. Close connections
+
+Example pattern:
+
+```rust
+#[tokio::test]
+#[ignore] // Ignored by default, run with --ignored or --include-ignored
+async fn test_postgres_integration() {
+    let config = ConnectionConfig {
+        // ... connection details from above
+    };
+    
+    let mut adapter = PostgresAdapter::new();
+    
+    // Test connection (skip if unavailable)
+    if !adapter.test_connection(&config, Some("test_password")).await.unwrap() {
+        println!("PostgreSQL not available, skipping test");
+        return;
+    }
+    
+    // Run tests
+    adapter.connect(&config, Some("test_password")).await.unwrap();
+    // ... test operations ...
+    adapter.disconnect().await.unwrap();
+}
+```
+
+## CI/CD Integration
+
+For CI pipelines, add a step to start test databases:
+
+```yaml
+# Example GitHub Actions
+steps:
+  - name: Start test databases
+    run: podman-compose up -d
+  
+  - name: Wait for databases
+    run: |
+      timeout 120s bash -c 'until podman-compose ps | grep healthy; do sleep 2; done'
+  
+  - name: Run integration tests
+    run: cargo test --features all-databases -- --test-threads=1
+  
+  - name: Cleanup
+    run: podman-compose down -v
+```

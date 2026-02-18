@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 # Internal dependencies
-rusty-data = { path = "../rusty-data", features = ["postgres", "mysql", "sqlite", "mongodb", "mssql", "oracle"] }
+rusty-data = { path = "../rusty-data", features = ["postgres", "mysql", "sqlite"] }
 rusty-logging = { path = "../rusty-logging" }
 
 # Logging (for tracing macros)

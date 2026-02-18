@@ -1,6 +1,7 @@
 use crate::adapter::{
-    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseType, QueryResult, QueryValue,
-    TableInfo,
+    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseMetadata, DatabaseType,
+    ForeignKeyInfo, IndexInfo, ProcedureInfo, QueryResult, QueryValue, ServerInfo, TableInfo,
+    TableMetadata, ViewInfo,
 };
 use crate::error::{DataError, Result};
 use async_trait::async_trait;
@@ -197,6 +198,7 @@ impl DatabaseAdapter for MongoDbAdapter {
         })
     }
 
+    #[instrument(skip(self))]
     async fn list_databases(&self) -> Result<Vec<String>> {
         let client = self
             .client
@@ -211,6 +213,7 @@ impl DatabaseAdapter for MongoDbAdapter {
         Ok(databases)
     }
 
+    #[instrument(skip(self))]
     async fn list_tables(&self, _schema: Option<&str>) -> Result<Vec<String>> {
         let client = self
             .client
@@ -231,6 +234,7 @@ impl DatabaseAdapter for MongoDbAdapter {
         Ok(collections)
     }
 
+    #[instrument(skip(self), fields(collection = %table_name))]
     async fn describe_table(&self, table_name: &str, _schema: Option<&str>) -> Result<TableInfo> {
         let client = self
             .client
@@ -326,6 +330,331 @@ impl DatabaseAdapter for MongoDbAdapter {
 
     fn database_type(&self) -> DatabaseType {
         DatabaseType::MongoDB
+    }
+
+    // ===== Server & Database Introspection Methods =====
+
+    #[instrument(skip(self))]
+    async fn get_server_info(&self) -> Result<ServerInfo> {
+        info!("Retrieving MongoDB server info");
+
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+
+        let db_name = self.current_database.as_deref().unwrap_or("admin");
+        let db = client.database(db_name);
+
+        // Run buildInfo command
+        let build_info = db
+            .run_command(doc! { "buildInfo": 1 }, None)
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to get build info: {}", e)))?;
+
+        let version = build_info
+            .get_str("version")
+            .unwrap_or("unknown")
+            .to_string();
+
+        let mut extra_info = std::collections::HashMap::new();
+
+        // Extract additional info
+        if let Ok(git_version) = build_info.get_str("gitVersion") {
+            extra_info.insert("git_version".to_string(), git_version.to_string());
+        }
+        if let Ok(sys_info) = build_info.get_str("sysInfo") {
+            extra_info.insert("sys_info".to_string(), sys_info.to_string());
+        }
+        if let Ok(storage_engines) = build_info.get_array("storageEngines") {
+            extra_info.insert("storage_engines".to_string(), format!("{:?}", storage_engines));
+        }
+
+        Ok(ServerInfo {
+            version,
+            server_type: "MongoDB".to_string(),
+            extra_info,
+        })
+    }
+
+    #[instrument(skip(self), fields(database = %database_name))]
+    async fn get_database_metadata(&self, database_name: &str) -> Result<DatabaseMetadata> {
+        info!("Retrieving metadata for database: {}", database_name);
+
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+
+        let db = client.database(database_name);
+
+        // Run dbStats command
+        let db_stats = db
+            .run_command(doc! { "dbStats": 1 }, None)
+            .await
+            .map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to get database stats for '{}': {}",
+                    database_name, e
+                ))
+            })?;
+
+        let size_bytes = db_stats.get_i64("dataSize").ok();
+        let collection_count = db_stats.get_i32("collections").ok().map(|c| c as i64);
+
+        let mut extra_info = std::collections::HashMap::new();
+
+        if let Ok(indexes) = db_stats.get_i32("indexes") {
+            extra_info.insert("indexes".to_string(), indexes.to_string());
+        }
+        if let Ok(index_size) = db_stats.get_i64("indexSize") {
+            extra_info.insert("index_size".to_string(), index_size.to_string());
+        }
+        if let Ok(storage_size) = db_stats.get_i64("storageSize") {
+            extra_info.insert("storage_size".to_string(), storage_size.to_string());
+        }
+        if let Some(coll_count) = collection_count {
+            extra_info.insert("collections".to_string(), coll_count.to_string());
+        }
+
+        Ok(DatabaseMetadata {
+            name: database_name.to_string(),
+            size_bytes,
+            owner: None, // MongoDB doesn't expose owner in dbStats
+            encoding: Some("UTF-8".to_string()), // MongoDB uses UTF-8 by default
+            created_at: None,
+            extra_info,
+        })
+    }
+
+    #[instrument(skip(self), fields(table = %table_name))]
+    async fn get_table_metadata(&self, table_name: &str, _schema: Option<&str>) -> Result<TableMetadata> {
+        info!("Retrieving metadata for collection: {}", table_name);
+
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+
+        let db_name = self.current_database.as_deref().ok_or_else(|| {
+            DataError::Connection("No database selected".to_string())
+        })?;
+
+        let db = client.database(db_name);
+
+        // Get collection stats
+        let stats_cmd = doc! { "collStats": table_name };
+        let coll_stats = db
+            .run_command(stats_cmd, None)
+            .await
+            .map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to get collection stats for '{}': {}",
+                    table_name, e
+                ))
+            })?;
+
+        let size_bytes = coll_stats.get_i64("size").ok();
+        let row_count = coll_stats.get_i64("count").ok();
+
+        let table_type = if let Ok(view_on) = coll_stats.get_str("viewOn") {
+            Some(format!("view (on: {})", view_on))
+        } else {
+            Some("collection".to_string())
+        };
+
+        Ok(TableMetadata {
+            name: table_name.to_string(),
+            schema: None, // MongoDB doesn't have schemas in the SQL sense
+            size_bytes,
+            row_count,
+            created_at: None,
+            table_type,
+        })
+    }
+
+    #[instrument(skip(self), fields(table = %table_name))]
+    async fn get_indexes(&self, table_name: &str, _schema: Option<&str>) -> Result<Vec<IndexInfo>> {
+        info!("Retrieving indexes for collection: {}", table_name);
+
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+
+        let db_name = self.current_database.as_deref().ok_or_else(|| {
+            DataError::Connection("No database selected".to_string())
+        })?;
+
+        let db = client.database(db_name);
+        let collection = db.collection::<Document>(table_name);
+
+        // List indexes
+        let mut cursor = collection.list_indexes(None).await.map_err(|e| {
+            DataError::Query(format!(
+                "Failed to list indexes for '{}': {}",
+                table_name, e
+            ))
+        })?;
+
+        let mut indexes = Vec::new();
+
+        while cursor.advance().await.map_err(|e| {
+            DataError::Query(format!("Failed to iterate indexes: {}", e))
+        })? {
+            let index_doc = cursor.current();
+
+            let index_name = index_doc
+                .get_str("name")
+                .unwrap_or("unknown")
+                .to_string();
+
+            // Extract key fields (columns)
+            let mut columns = Vec::new();
+            if let Ok(keys) = index_doc.get_document("key") {
+                for item in keys.iter() {
+                    if let Ok((field, _)) = item {
+                        columns.push(field.to_string());
+                    }
+                }
+            }
+
+            let is_unique = index_doc.get_bool("unique").unwrap_or(false);
+            let is_primary = index_name == "_id_"; // MongoDB's default primary key index
+
+            let index_type = if let Ok(version) = index_doc.get_i32("v") {
+                Some(format!("version_{}", version))
+            } else {
+                None
+            };
+
+            indexes.push(IndexInfo {
+                name: index_name,
+                table_name: table_name.to_string(),
+                schema: None,
+                columns,
+                is_unique,
+                is_primary,
+                index_type,
+            });
+        }
+
+        Ok(indexes)
+    }
+
+    #[instrument(skip(self), fields(table = %_table_name))]
+    async fn get_foreign_keys(&self, _table_name: &str, _schema: Option<&str>) -> Result<Vec<ForeignKeyInfo>> {
+        info!("MongoDB does not support foreign keys");
+
+        // MongoDB doesn't have foreign key constraints
+        // Return empty list
+        Ok(Vec::new())
+    }
+
+    #[instrument(skip(self))]
+    async fn get_views(&self, _schema: Option<&str>) -> Result<Vec<ViewInfo>> {
+        info!("Retrieving views");
+
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+
+        let db_name = self.current_database.as_deref().ok_or_else(|| {
+            DataError::Connection("No database selected".to_string())
+        })?;
+
+        let db = client.database(db_name);
+
+        // List collections with views
+        let filter = doc! { "type": "view" };
+        let mut cursor = db
+            .list_collections(Some(filter), None)
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to list views: {}", e)))?;
+
+        let mut views = Vec::new();
+
+        while cursor.advance().await.map_err(|e| {
+            DataError::Query(format!("Failed to iterate views: {}", e))
+        })? {
+            let view_doc = cursor.current();
+
+            let name = view_doc.get_str("name").unwrap_or("unknown").to_string();
+
+            // Try to extract pipeline from options
+            let definition = if let Ok(options) = view_doc.get_document("options") {
+                if let Ok(pipeline) = options.get_array("pipeline") {
+                    Some(format!("{:?}", pipeline))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            views.push(ViewInfo {
+                name,
+                schema: None,
+                definition,
+            });
+        }
+
+        Ok(views)
+    }
+
+    #[instrument(skip(self), fields(view = %view_name))]
+    async fn get_view_definition(&self, view_name: &str, _schema: Option<&str>) -> Result<Option<String>> {
+        info!("Retrieving view definition for: {}", view_name);
+
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+
+        let db_name = self.current_database.as_deref().ok_or_else(|| {
+            DataError::Connection("No database selected".to_string())
+        })?;
+
+        let db = client.database(db_name);
+
+        // List collection to get view info
+        let filter = doc! { "name": view_name, "type": "view" };
+        let mut cursor = db
+            .list_collections(Some(filter), None)
+            .await
+            .map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to get view definition for '{}': {}",
+                    view_name, e
+                ))
+            })?;
+
+        if cursor.advance().await.map_err(|e| {
+            DataError::Query(format!("Failed to iterate views: {}", e))
+        })? {
+            let view_doc = cursor.current();
+
+            if let Ok(options) = view_doc.get_document("options") {
+                if let Ok(pipeline) = options.get_array("pipeline") {
+                    return Ok(Some(format!("{:?}", pipeline)));
+                }
+                if let Ok(view_on) = options.get_str("viewOn") {
+                    return Ok(Some(format!("View on collection: {}", view_on)));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    #[instrument(skip(self))]
+    async fn list_stored_procedures(&self, _schema: Option<&str>) -> Result<Vec<ProcedureInfo>> {
+        info!("MongoDB does not support stored procedures");
+
+        // MongoDB doesn't have stored procedures in the traditional sense
+        // (though you can store JavaScript functions with db.system.js, this is deprecated)
+        Ok(Vec::new())
     }
 }
 

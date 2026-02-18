@@ -145,48 +145,51 @@ impl MainPanel {
                 theme.text_secondary
             };
 
-            // Tab button with title and close button (consistent height)
-            let tab_content = row![
-                button(text(&tab.title).size(12).color(text_color))
-                    .on_press(on_tab_click(tab_id))
-                    .padding([8, 12])
-                    .style(move |_theme, status| button::Style {
-                        background: Some(bg_color.into()),
-                        text_color,
-                        border: Border {
-                            color: if matches!(status, button::Status::Hovered) {
+            // Wrap both buttons in a container with border for consistent height
+            let tab_content = container(
+                row![
+                    button(text(&tab.title).size(12).color(text_color))
+                        .on_press(on_tab_click(tab_id))
+                        .padding([6, 12])
+                        .style(move |_theme, _status| button::Style {
+                            background: Some(bg_color.into()),
+                            text_color,
+                            border: Border::default(),
+                            ..Default::default()
+                        }),
+                    button(text("×").size(12).color(text_color))
+                        .on_press(on_tab_close(tab_id))
+                        .padding([6, 8])
+                        .style(move |_theme, status| button::Style {
+                            background: Some(bg_color.into()),
+                            text_color: if matches!(status, button::Status::Hovered) {
                                 theme.accent
                             } else {
-                                theme.border
+                                text_color
                             },
-                            width: 1.0,
+                            border: Border::default(),
                             ..Default::default()
-                        },
-                        ..Default::default()
-                    }),
-                button(text("×").size(16).color(text_color))
-                    .on_press(on_tab_close(tab_id))
-                    .padding([8, 10])
-                    .style(move |_theme, status| button::Style {
-                        background: Some(bg_color.into()),
-                        text_color: if matches!(status, button::Status::Hovered) {
-                            theme.accent
-                        } else {
-                            text_color
-                        },
-                        border: Border::default(),
-                        ..Default::default()
-                    }),
-            ]
-            .spacing(0);
+                        }),
+                ]
+                .spacing(0)
+            )
+            .style(move |_theme| container::Style {
+                background: None,
+                border: Border {
+                    color: theme.border,
+                    width: 1.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
 
             tabs_row = tabs_row.push(tab_content);
         }
 
-        // New tab button (consistent height with other buttons)
-        let new_tab_btn = button(text("+").size(16))
+        // New tab button (perfectly aligned height with tabs)
+        let new_tab_btn = button(text("+").size(12))
             .on_press(on_new_tab)
-            .padding([8, 12])
+            .padding([6, 12])
             .style(move |_theme, status| button::Style {
                 background: Some(theme.background_secondary.into()),
                 text_color: if matches!(status, button::Status::Hovered) {

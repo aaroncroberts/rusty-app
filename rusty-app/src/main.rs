@@ -2,14 +2,14 @@ use iced::widget::{column, container, row};
 use iced::{Element, Fill, Subscription, Task, Theme};
 use iced::event::Event;
 use iced::mouse;
-use rusty_app::components::ComponentAction;
+use rusty_app::components::{ComponentAction, ComponentId, PropertiesComponent, ServerListComponent, TableListComponent};
 use rusty_app::connection_form::{ConnectionForm, ConnectionFormData, ConnectionFormMessage};
-use rusty_app::left_panel::{self, LeftPanel, PanelTab};
+use rusty_app::left_panel::{self, LeftPanel};
 use rusty_app::main_panel::{MainPanel, TabId};
 use rusty_app::menu_bar::{MenuBar, MenuAction, MenuItem};
 use rusty_app::status_bar::{ConnectionStatus, StatusBar};
 use rusty_app::theme::ThemeColors;
-use rusty_app::views::ViewRegistry;
+use rusty_app::views::{RegionId, ViewRegistry};
 use rusty_data::adapter::{ConnectionConfig, DatabaseType};
 use rusty_data::config::ConfigManager;
 use rusty_logging::LoggingConfig;
@@ -47,7 +47,7 @@ struct DatabaseIDE {
     status_bar: StatusBar,
     connection_form: ConnectionForm,
     panel_width: f32,
-    active_tab: PanelTab,
+    active_component: Option<ComponentId>,
     is_resizing: bool,
     last_mouse_x: Option<f32>,
     connection_status: ConnectionStatus,
@@ -84,6 +84,22 @@ impl Default for DatabaseIDE {
 
         info!(count = saved_connections.len(), "Loaded saved connections");
 
+        // Create and register components in ViewRegistry
+        let mut view_registry = ViewRegistry::new();
+
+        // Create ServerList component with loaded connections
+        let mut server_list = ServerListComponent::new();
+        server_list.set_connections(saved_connections.clone());
+        view_registry.register(Box::new(server_list), RegionId::LeftPanel);
+
+        // Create TableList component
+        let table_list = TableListComponent::new();
+        view_registry.register(Box::new(table_list), RegionId::LeftPanel);
+
+        // Create Properties component
+        let properties = PropertiesComponent::new();
+        view_registry.register(Box::new(properties), RegionId::LeftPanel);
+
         Self {
             theme,
             menu_bar: MenuBar::new(theme),
@@ -92,7 +108,7 @@ impl Default for DatabaseIDE {
             status_bar: StatusBar::new(theme),
             connection_form: ConnectionForm::new(theme),
             panel_width: left_panel::DEFAULT_WIDTH,
-            active_tab: PanelTab::default(),
+            active_component: Some(ComponentId::ServerList), // Default to ServerList
             is_resizing: false,
             last_mouse_x: None,
             connection_status: ConnectionStatus::default(),
@@ -104,7 +120,7 @@ impl Default for DatabaseIDE {
             test_result: None,
             open_menu: None,
             show_left_panel: true,
-            view_registry: ViewRegistry::new(),
+            view_registry,
         }
     }
 }
@@ -114,7 +130,7 @@ enum Message {
     MenuToggle(MenuItem),
     MenuAction(MenuAction),
     CloseMenu,
-    TabClicked(PanelTab),
+    LeftPanelTabClicked(ComponentId),
     ResizeStart,
     ResizeMove(f32),
     ResizeEnd,
@@ -125,6 +141,12 @@ enum Message {
     ConnectionForm(ConnectionFormMessage),
     ConnectionTestResult(Result<(), String>),
     ComponentAction(ComponentAction),
+}
+
+impl From<ComponentAction> for Message {
+    fn from(action: ComponentAction) -> Self {
+        Message::ComponentAction(action)
+    }
 }
 
 /// Test database connection with appropriate adapter
@@ -206,8 +228,8 @@ impl DatabaseIDE {
                 self.open_menu = None;
                 Task::none()
             }
-            Message::TabClicked(tab) => {
-                self.active_tab = tab;
+            Message::LeftPanelTabClicked(component_id) => {
+                self.active_component = Some(component_id);
                 Task::none()
             }
             Message::ResizeStart => {
@@ -474,11 +496,10 @@ impl DatabaseIDE {
     fn left_panel(&self) -> Element<'_, Message> {
         self.left_panel.view(
             self.panel_width,
-            self.active_tab,
-            &self.saved_connections,
-            Message::TabClicked,
+            self.active_component,
+            &self.view_registry,
+            Message::LeftPanelTabClicked,
             Message::ResizeStart,
-            Message::NewConnection,
         )
     }
 

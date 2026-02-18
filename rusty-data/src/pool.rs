@@ -11,9 +11,18 @@ use tokio::sync::{Mutex, MutexGuard};
 ///
 /// This provides interior mutability for database clients that require
 /// mutable access while maintaining a &self API for the DatabaseAdapter trait.
-#[derive(Clone)]
 pub struct Pool<T> {
     inner: Arc<Mutex<T>>,
+}
+
+// Manual Clone implementation that doesn't require T: Clone
+// We can clone the Arc even if T isn't cloneable
+impl<T> Clone for Pool<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
 }
 
 impl<T> Pool<T> {

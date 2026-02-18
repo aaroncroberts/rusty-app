@@ -97,6 +97,79 @@ pub struct ColumnInfo {
     pub is_primary_key: bool,
 }
 
+/// Server information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerInfo {
+    pub version: String,
+    pub server_type: String,
+    pub extra_info: HashMap<String, String>,
+}
+
+/// Database metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabaseMetadata {
+    pub name: String,
+    pub size_bytes: Option<i64>,
+    pub owner: Option<String>,
+    pub encoding: Option<String>,
+    pub created_at: Option<String>,
+    pub extra_info: HashMap<String, String>,
+}
+
+/// Index information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexInfo {
+    pub name: String,
+    pub table_name: String,
+    pub schema: Option<String>,
+    pub columns: Vec<String>,
+    pub is_unique: bool,
+    pub is_primary: bool,
+    pub index_type: Option<String>,
+}
+
+/// Foreign key information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ForeignKeyInfo {
+    pub name: String,
+    pub table_name: String,
+    pub schema: Option<String>,
+    pub columns: Vec<String>,
+    pub referenced_table: String,
+    pub referenced_schema: Option<String>,
+    pub referenced_columns: Vec<String>,
+    pub on_delete: Option<String>,
+    pub on_update: Option<String>,
+}
+
+/// View information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ViewInfo {
+    pub name: String,
+    pub schema: Option<String>,
+    pub definition: Option<String>,
+}
+
+/// Stored procedure/function information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcedureInfo {
+    pub name: String,
+    pub schema: Option<String>,
+    pub return_type: Option<String>,
+    pub language: Option<String>,
+}
+
+/// Enhanced table metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TableMetadata {
+    pub name: String,
+    pub schema: Option<String>,
+    pub size_bytes: Option<i64>,
+    pub row_count: Option<i64>,
+    pub created_at: Option<String>,
+    pub table_type: Option<String>,
+}
+
 /// Main trait that all database adapters must implement
 #[async_trait]
 pub trait DatabaseAdapter: Send + Sync {
@@ -126,6 +199,74 @@ pub trait DatabaseAdapter: Send + Sync {
 
     /// Get the database type this adapter handles
     fn database_type(&self) -> DatabaseType;
+
+    // ===== Server & Database Introspection Methods =====
+
+    /// Get server version and configuration information
+    async fn get_server_info(&self) -> Result<ServerInfo> {
+        // Default implementation returns basic info
+        Ok(ServerInfo {
+            version: "Unknown".to_string(),
+            server_type: format!("{:?}", self.database_type()),
+            extra_info: HashMap::new(),
+        })
+    }
+
+    /// Get metadata about a specific database
+    async fn get_database_metadata(&self, _database_name: &str) -> Result<DatabaseMetadata> {
+        // Default implementation returns minimal info
+        Ok(DatabaseMetadata {
+            name: _database_name.to_string(),
+            size_bytes: None,
+            owner: None,
+            encoding: None,
+            created_at: None,
+            extra_info: HashMap::new(),
+        })
+    }
+
+    /// Get metadata about a specific table
+    async fn get_table_metadata(&self, _table_name: &str, _schema: Option<&str>) -> Result<TableMetadata> {
+        // Default implementation returns minimal info
+        Ok(TableMetadata {
+            name: _table_name.to_string(),
+            schema: _schema.map(|s| s.to_string()),
+            size_bytes: None,
+            row_count: None,
+            created_at: None,
+            table_type: None,
+        })
+    }
+
+    /// Get all indexes for a table
+    async fn get_indexes(&self, _table_name: &str, _schema: Option<&str>) -> Result<Vec<IndexInfo>> {
+        // Default implementation returns empty list
+        Ok(Vec::new())
+    }
+
+    /// Get all foreign keys for a table
+    async fn get_foreign_keys(&self, _table_name: &str, _schema: Option<&str>) -> Result<Vec<ForeignKeyInfo>> {
+        // Default implementation returns empty list
+        Ok(Vec::new())
+    }
+
+    /// List all views in a schema
+    async fn get_views(&self, _schema: Option<&str>) -> Result<Vec<ViewInfo>> {
+        // Default implementation returns empty list
+        Ok(Vec::new())
+    }
+
+    /// Get view definition
+    async fn get_view_definition(&self, _view_name: &str, _schema: Option<&str>) -> Result<Option<String>> {
+        // Default implementation returns None
+        Ok(None)
+    }
+
+    /// List all stored procedures/functions in a schema
+    async fn list_stored_procedures(&self, _schema: Option<&str>) -> Result<Vec<ProcedureInfo>> {
+        // Default implementation returns empty list
+        Ok(Vec::new())
+    }
 }
 
 #[cfg(test)]

@@ -84,6 +84,14 @@ impl View {
     pub fn component(&self) -> &dyn Component {
         self.component.as_ref()
     }
+
+    /// Get mutable access to the underlying component
+    ///
+    /// Note: Returns &mut Box<dyn Component> instead of &mut dyn Component
+    /// to allow downcasting if needed.
+    pub fn component_mut(&mut self) -> &mut Box<dyn Component> {
+        &mut self.component
+    }
 }
 
 /// Centralized registry for managing views
@@ -166,6 +174,11 @@ impl ViewRegistry {
     /// Get a view by component ID
     pub fn get_view(&self, id: ComponentId) -> Option<&View> {
         self.views.get(&id)
+    }
+
+    /// Get a mutable view by component ID
+    pub fn get_view_mut(&mut self, id: ComponentId) -> Option<&mut View> {
+        self.views.get_mut(&id)
     }
 
     /// Get all component IDs

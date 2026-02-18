@@ -1,11 +1,13 @@
 use crate::adapter::{
-    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseType, QueryResult, QueryValue,
-    TableInfo,
+    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseMetadata, DatabaseType,
+    ForeignKeyInfo, IndexInfo, ProcedureInfo, QueryResult, QueryValue, ServerInfo, TableInfo,
+    TableMetadata, ViewInfo,
 };
 use crate::error::{DataError, Result};
 use async_trait::async_trait;
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions, SqliteRow};
 use sqlx::{Column, Row, TypeInfo};
+use tracing::{debug, info, instrument, warn};
 
 /// SQLite database adapter using sqlx
 pub struct SqliteAdapter {
@@ -115,6 +117,7 @@ impl Default for SqliteAdapter {
 
 #[async_trait]
 impl DatabaseAdapter for SqliteAdapter {
+    #[instrument(skip(self, _password), fields(db = %config.database))]
     async fn connect(&mut self, config: &ConnectionConfig, _password: Option<&str>) -> Result<()> {
         if config.db_type != DatabaseType::SQLite {
             return Err(DataError::Config(format!(
@@ -123,20 +126,27 @@ impl DatabaseAdapter for SqliteAdapter {
             )));
         }
 
+        info!("Connecting to SQLite database");
         let connection_string = Self::build_connection_string(config);
 
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
             .connect(&connection_string)
             .await
-            .map_err(|e| DataError::Connection(format!("Failed to connect: {}", e)))?;
+            .map_err(|e| {
+                warn!(error = %e, "Failed to connect to SQLite");
+                DataError::Connection(format!("Failed to connect: {}", e))
+            })?;
 
         self.pool = Some(pool);
+        info!("Successfully connected to SQLite");
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn disconnect(&mut self) -> Result<()> {
         if let Some(pool) = self.pool.take() {
+            info!("Disconnecting from SQLite");
             pool.close().await;
         }
         Ok(())
@@ -146,7 +156,9 @@ impl DatabaseAdapter for SqliteAdapter {
         self.pool.is_some()
     }
 
+    #[instrument(skip(self, query), fields(query_len = query.len()))]
     async fn execute_query(&self, query: &str) -> Result<QueryResult> {
+        debug!("Executing query");
         let pool = self
             .pool
             .as_ref()
@@ -184,6 +196,7 @@ impl DatabaseAdapter for SqliteAdapter {
         })
     }
 
+    #[instrument(skip(self))]
     async fn list_databases(&self) -> Result<Vec<String>> {
         let pool = self
             .pool
@@ -206,6 +219,7 @@ impl DatabaseAdapter for SqliteAdapter {
         Ok(databases)
     }
 
+    #[instrument(skip(self))]
     async fn list_tables(&self, _schema: Option<&str>) -> Result<Vec<String>> {
         let pool = self
             .pool
@@ -229,6 +243,7 @@ impl DatabaseAdapter for SqliteAdapter {
         Ok(tables)
     }
 
+    #[instrument(skip(self), fields(table = %table_name))]
     async fn describe_table(&self, table_name: &str, _schema: Option<&str>) -> Result<TableInfo> {
         let pool = self
             .pool
@@ -293,6 +308,379 @@ impl DatabaseAdapter for SqliteAdapter {
 
     fn database_type(&self) -> DatabaseType {
         DatabaseType::SQLite
+    }
+
+    // ===== Server & Database Introspection Methods =====
+
+    #[instrument(skip(self))]
+    async fn get_server_info(&self) -> Result<ServerInfo> {
+        info!("Retrieving SQLite server info");
+
+        let pool = self
+            .pool
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+
+        // Get SQLite version
+        let version_row = sqlx::query("SELECT sqlite_version() as version")
+            .fetch_one(pool)
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to get SQLite version: {}", e)))?;
+
+        let version: String = version_row
+            .try_get("version")
+            .map_err(|e| DataError::Query(format!("Failed to parse version: {}", e)))?;
+
+        // Get compile options
+        let compile_options = sqlx::query("PRAGMA compile_options")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| {
+                DataError::Query(format!("Failed to get compile options: {}", e))
+            })?;
+
+        let mut extra_info = std::collections::HashMap::new();
+        extra_info.insert("full_version".to_string(), version.clone());
+
+        for (i, row) in compile_options.iter().enumerate() {
+            if let Ok(option) = row.try_get::<String, _>(0) {
+                extra_info.insert(format!("compile_option_{}", i), option);
+            }
+        }
+
+        Ok(ServerInfo {
+            version,
+            server_type: "SQLite".to_string(),
+            extra_info,
+        })
+    }
+
+    #[instrument(skip(self), fields(database = %database_name))]
+    async fn get_database_metadata(&self, database_name: &str) -> Result<DatabaseMetadata> {
+        info!("Retrieving metadata for database: {}", database_name);
+
+        let pool = self
+            .pool
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+
+        // For SQLite, database_name is the file path
+        // Get page size and page count to calculate file size
+        let page_size_row = sqlx::query("PRAGMA page_size")
+            .fetch_one(pool)
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to get page size: {}", e)))?;
+
+        let page_count_row = sqlx::query("PRAGMA page_count")
+            .fetch_one(pool)
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to get page count: {}", e)))?;
+
+        let page_size: i64 = page_size_row
+            .try_get(0)
+            .map_err(|e| DataError::Query(format!("Failed to parse page size: {}", e)))?;
+
+        let page_count: i64 = page_count_row
+            .try_get(0)
+            .map_err(|e| DataError::Query(format!("Failed to parse page count: {}", e)))?;
+
+        let size_bytes = page_size * page_count;
+
+        // Get encoding
+        let encoding_row = sqlx::query("PRAGMA encoding")
+            .fetch_one(pool)
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to get encoding: {}", e)))?;
+
+        let encoding: String = encoding_row
+            .try_get(0)
+            .map_err(|e| DataError::Query(format!("Failed to parse encoding: {}", e)))?;
+
+        let mut extra_info = std::collections::HashMap::new();
+        extra_info.insert("page_size".to_string(), page_size.to_string());
+        extra_info.insert("page_count".to_string(), page_count.to_string());
+
+        Ok(DatabaseMetadata {
+            name: database_name.to_string(),
+            size_bytes: Some(size_bytes),
+            owner: None, // SQLite is file-based, no owner concept
+            encoding: Some(encoding),
+            created_at: None,
+            extra_info,
+        })
+    }
+
+    #[instrument(skip(self), fields(table = %table_name))]
+    async fn get_table_metadata(&self, table_name: &str, _schema: Option<&str>) -> Result<TableMetadata> {
+        info!("Retrieving metadata for table: {}", table_name);
+
+        let pool = self
+            .pool
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+
+        // Get row count
+        let count_query = format!("SELECT COUNT(*) as count FROM {}", table_name);
+        let count_row = sqlx::query(&count_query)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| {
+                DataError::Query(format!("Failed to get row count for '{}': {}", table_name, e))
+            })?;
+
+        let row_count: i64 = count_row
+            .try_get("count")
+            .map_err(|e| DataError::Query(format!("Failed to parse row count: {}", e)))?;
+
+        // Get table SQL from sqlite_master
+        let table_info_query = "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?";
+        let table_info_row = sqlx::query(table_info_query)
+            .bind(table_name)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to get table info for '{}': {}",
+                    table_name, e
+                ))
+            })?;
+
+        let table_sql: Option<String> = table_info_row.try_get("sql").ok();
+
+        Ok(TableMetadata {
+            name: table_name.to_string(),
+            schema: None, // SQLite doesn't have schemas in the same way
+            size_bytes: None, // Per-table size not easily available in SQLite
+            row_count: Some(row_count),
+            created_at: None,
+            table_type: table_sql.map(|_| "table".to_string()),
+        })
+    }
+
+    #[instrument(skip(self), fields(table = %table_name))]
+    async fn get_indexes(&self, table_name: &str, _schema: Option<&str>) -> Result<Vec<IndexInfo>> {
+        info!("Retrieving indexes for table: {}", table_name);
+
+        let pool = self
+            .pool
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+
+        // Get indexes from sqlite_master
+        let query = "
+            SELECT name, sql
+            FROM sqlite_master
+            WHERE type = 'index' AND tbl_name = ?
+        ";
+
+        let rows = sqlx::query(query)
+            .bind(table_name)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| {
+                DataError::Query(format!("Failed to get indexes for '{}': {}", table_name, e))
+            })?;
+
+        let mut indexes = Vec::new();
+
+        for row in rows {
+            let index_name: String = row
+                .try_get("name")
+                .map_err(|e| DataError::Query(format!("Failed to get index name: {}", e)))?;
+
+            // Get index details using PRAGMA index_info
+            let info_query = format!("PRAGMA index_info({})", index_name);
+            let info_rows = sqlx::query(&info_query)
+                .fetch_all(pool)
+                .await
+                .map_err(|e| {
+                    DataError::Query(format!("Failed to get index info for '{}': {}", index_name, e))
+                })?;
+
+            let mut columns = Vec::new();
+            for info_row in info_rows {
+                if let Ok(col_name) = info_row.try_get::<String, _>("name") {
+                    columns.push(col_name);
+                }
+            }
+
+            // Check if unique using PRAGMA index_list
+            let list_query = format!("PRAGMA index_list({})", table_name);
+            let list_rows = sqlx::query(&list_query)
+                .fetch_all(pool)
+                .await
+                .map_err(|e| {
+                    DataError::Query(format!("Failed to get index list for '{}': {}", table_name, e))
+                })?;
+
+            let mut is_unique = false;
+            let mut is_primary = false;
+            for list_row in list_rows {
+                if let Ok(name) = list_row.try_get::<String, _>("name") {
+                    if name == index_name {
+                        if let Ok(unique) = list_row.try_get::<i64, _>("unique") {
+                            is_unique = unique == 1;
+                        }
+                        if let Ok(origin) = list_row.try_get::<String, _>("origin") {
+                            is_primary = origin == "pk";
+                        }
+                        break;
+                    }
+                }
+            }
+
+            indexes.push(IndexInfo {
+                name: index_name.clone(),
+                table_name: table_name.to_string(),
+                schema: None,
+                columns,
+                is_unique,
+                is_primary,
+                index_type: Some("BTREE".to_string()), // SQLite uses B-tree by default
+            });
+        }
+
+        Ok(indexes)
+    }
+
+    #[instrument(skip(self), fields(table = %table_name))]
+    async fn get_foreign_keys(&self, table_name: &str, _schema: Option<&str>) -> Result<Vec<ForeignKeyInfo>> {
+        info!("Retrieving foreign keys for table: {}", table_name);
+
+        let pool = self
+            .pool
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+
+        // Use PRAGMA foreign_key_list to get FKs
+        let query = format!("PRAGMA foreign_key_list({})", table_name);
+        let rows = sqlx::query(&query)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to get foreign keys for '{}': {}",
+                    table_name, e
+                ))
+            })?;
+
+        // Group by foreign key ID
+        let mut fk_map: std::collections::HashMap<i64, ForeignKeyInfo> = std::collections::HashMap::new();
+
+        for row in rows {
+            let id: i64 = row
+                .try_get("id")
+                .map_err(|e| DataError::Query(format!("Failed to get FK id: {}", e)))?;
+
+            let from_col: String = row
+                .try_get("from")
+                .map_err(|e| DataError::Query(format!("Failed to get from column: {}", e)))?;
+
+            let to_table: String = row
+                .try_get("table")
+                .map_err(|e| DataError::Query(format!("Failed to get referenced table: {}", e)))?;
+
+            let to_col: String = row
+                .try_get("to")
+                .map_err(|e| DataError::Query(format!("Failed to get to column: {}", e)))?;
+
+            let on_update: Option<String> = row.try_get("on_update").ok();
+            let on_delete: Option<String> = row.try_get("on_delete").ok();
+
+            if let Some(fk) = fk_map.get_mut(&id) {
+                fk.columns.push(from_col);
+                fk.referenced_columns.push(to_col);
+            } else {
+                fk_map.insert(
+                    id,
+                    ForeignKeyInfo {
+                        name: format!("fk_{}_{}", table_name, id),
+                        table_name: table_name.to_string(),
+                        schema: None,
+                        columns: vec![from_col],
+                        referenced_table: to_table.clone(),
+                        referenced_schema: None,
+                        referenced_columns: vec![to_col],
+                        on_delete,
+                        on_update,
+                    },
+                );
+            }
+        }
+
+        Ok(fk_map.into_values().collect())
+    }
+
+    #[instrument(skip(self))]
+    async fn get_views(&self, _schema: Option<&str>) -> Result<Vec<ViewInfo>> {
+        info!("Retrieving views");
+
+        let pool = self
+            .pool
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+
+        let query = "SELECT name, sql FROM sqlite_master WHERE type = 'view'";
+
+        let rows = sqlx::query(query)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to get views: {}", e)))?;
+
+        let mut views = Vec::new();
+
+        for row in rows {
+            let name: String = row
+                .try_get("name")
+                .map_err(|e| DataError::Query(format!("Failed to get view name: {}", e)))?;
+
+            let definition: Option<String> = row.try_get("sql").ok();
+
+            views.push(ViewInfo {
+                name,
+                schema: None,
+                definition,
+            });
+        }
+
+        Ok(views)
+    }
+
+    #[instrument(skip(self), fields(view = %view_name))]
+    async fn get_view_definition(&self, view_name: &str, _schema: Option<&str>) -> Result<Option<String>> {
+        info!("Retrieving view definition for: {}", view_name);
+
+        let pool = self
+            .pool
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
+
+        let query = "SELECT sql FROM sqlite_master WHERE type = 'view' AND name = ?";
+
+        let row = sqlx::query(query)
+            .bind(view_name)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to get view definition for '{}': {}",
+                    view_name, e
+                ))
+            })?;
+
+        match row {
+            Some(r) => Ok(r.try_get("sql").ok()),
+            None => Ok(None),
+        }
+    }
+
+    #[instrument(skip(self))]
+    async fn list_stored_procedures(&self, _schema: Option<&str>) -> Result<Vec<ProcedureInfo>> {
+        info!("Listing stored procedures");
+
+        // SQLite does not support stored procedures in the traditional sense
+        // Return empty list
+        Ok(Vec::new())
     }
 }
 

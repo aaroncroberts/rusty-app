@@ -1,23 +1,26 @@
 use crate::adapter::{
-    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseType, QueryResult, QueryValue,
-    TableInfo,
+    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseMetadata, DatabaseType,
+    ForeignKeyInfo, IndexInfo, ProcedureInfo, QueryResult, QueryValue, ServerInfo, TableInfo,
+    TableMetadata, ViewInfo,
 };
 use crate::error::{DataError, Result};
+use crate::pool::Pool;
 use async_trait::async_trait;
-use tiberius::{AuthMethod, Client, Config, Row};
+use futures_util::stream::TryStreamExt;
+use tiberius::{AuthMethod, Client, Config, QueryItem, Row};
 use tokio::net::TcpStream;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 use tracing::{info, instrument, warn};
 
 /// Microsoft SQL Server database adapter using tiberius
 pub struct MssqlAdapter {
-    client: Option<Client<Compat<TcpStream>>>,
+    pool: Option<Pool<Client<Compat<TcpStream>>>>,
 }
 
 impl MssqlAdapter {
     /// Create a new SQL Server adapter
     pub fn new() -> Self {
-        Self { client: None }
+        Self { pool: None }
     }
 
     /// Build a tiberius config from connection configuration
@@ -114,37 +117,85 @@ impl DatabaseAdapter for MssqlAdapter {
                 DataError::Connection(format!("Failed to connect: {}", e))
             })?;
 
-        self.client = Some(client);
+        self.pool = Some(Pool::new(client));
         info!("Successfully connected to SQL Server");
         Ok(())
     }
 
     #[instrument(skip(self))]
     async fn disconnect(&mut self) -> Result<()> {
-        if let Some(mut client) = self.client.take() {
+        if let Some(_pool) = self.pool.take() {
             info!("Disconnecting from SQL Server");
-            let _ = client.close().await;
+            // Pool will be dropped here, closing the connection
         }
         Ok(())
     }
 
     fn is_connected(&self) -> bool {
-        self.client.is_some()
+        self.pool.is_some()
     }
 
     #[instrument(skip(self, query), fields(query_len = query.len()))]
     async fn execute_query(&self, query: &str) -> Result<QueryResult> {
-        // Note: tiberius Client methods require &mut self, which conflicts with our &self trait signature
-        // This is a known limitation. For proper implementation, we would need a connection pool.
-        // For now, return an informative error.
-        Err(DataError::Query(
-            "MSSQL adapter requires internal refactoring for proper query execution. \
-             The tiberius client requires mutable access. \
-             Please use a connection pool implementation."
-                .to_string(),
-        ))
+        let pool = self.pool.as_ref().ok_or_else(|| {
+            DataError::Connection("Not connected to database".to_string())
+        })?;
+
+        let mut client = pool.lock().await;
+        
+        // Execute the query
+        let mut result = client.query(query, &[]).await.map_err(|e| {
+            warn!(error = %e, "Query execution failed");
+            DataError::Query(format!("Query failed: {}", e))
+        })?;
+
+        // Get column information from the first result set
+        let columns_opt = result.columns().await.map_err(|e| {
+            DataError::Query(format!("Failed to get columns: {}", e))
+        })?;
+        
+        let columns: Vec<String> = if let Some(cols) = columns_opt {
+            cols.iter().map(|col| col.name().to_string()).collect()
+        } else {
+            Vec::new()
+        };
+
+        // Collect rows
+        let mut rows = Vec::new();
+        let mut row_count = 0u64;
+        
+        while let Some(item) = result.try_next().await.map_err(|e| {
+            DataError::Query(format!("Failed to fetch row: {}", e))
+        })? {
+            match item {
+                QueryItem::Row(row) => {
+                    let values = Self::row_to_values(&row)?;
+                    rows.push(values);
+                    row_count += 1;
+                }
+                QueryItem::Metadata(_) => {
+                    // Skip metadata items
+                }
+            }
+        }
+
+        // For queries that modify data, use the row count; otherwise None
+        let rows_affected = if rows.is_empty() && row_count == 0 {
+            Some(0)
+        } else if !rows.is_empty() {
+            None // SELECT query
+        } else {
+            Some(row_count)
+        };
+
+        Ok(QueryResult {
+            columns,
+            rows,
+            rows_affected,
+        })
     }
 
+    #[instrument(skip(self))]
     async fn list_databases(&self) -> Result<Vec<String>> {
         let result = self
             .execute_query("SELECT name FROM sys.databases WHERE database_id > 4 ORDER BY name")
@@ -165,6 +216,7 @@ impl DatabaseAdapter for MssqlAdapter {
         Ok(databases)
     }
 
+    #[instrument(skip(self))]
     async fn list_tables(&self, schema: Option<&str>) -> Result<Vec<String>> {
         let schema_name = schema.unwrap_or("dbo");
         let query = format!(
@@ -191,6 +243,7 @@ impl DatabaseAdapter for MssqlAdapter {
         Ok(tables)
     }
 
+    #[instrument(skip(self), fields(table = %table_name))]
     async fn describe_table(&self, table_name: &str, schema: Option<&str>) -> Result<TableInfo> {
         let schema_name = schema.unwrap_or("dbo");
         let query = format!(

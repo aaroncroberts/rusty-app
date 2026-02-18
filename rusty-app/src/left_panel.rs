@@ -2,10 +2,15 @@
 //!
 //! Provides a resizable panel (120-400px) for viewing database objects
 //! like servers, tables, and properties.
+//!
+//! The panel dynamically generates tabs from enabled views in the ViewRegistry.
 
+use crate::components::{ComponentAction, ComponentId};
 use crate::theme::ThemeColors;
-use iced::widget::{button, column, container, horizontal_space, row, text};
+use crate::views::{RegionId, ViewRegistry};
+use iced::widget::{button, column, container, horizontal_space, mouse_area, row, scrollable, text};
 use iced::{Border, Element, Fill, Length};
+use iced::mouse::Interaction;
 
 /// Minimum width for the left panel in pixels
 pub const MIN_WIDTH: f32 = 120.0;
@@ -61,40 +66,39 @@ impl LeftPanel {
         Self { theme }
     }
 
-    /// Render the left panel with current width and active tab
-    pub fn view<'a, Message: 'a + Clone>(
+    /// Render the left panel with current width and active component
+    ///
+    /// Dynamically generates tabs from enabled views in ViewRegistry.
+    pub fn view<'a, Message: 'a + Clone + From<ComponentAction>>(
         &'a self,
         width: f32,
-        active_tab: PanelTab,
-        connections: &'a [rusty_data::adapter::ConnectionConfig],
-        on_tab_click: impl Fn(PanelTab) -> Message + 'a,
+        active_component: Option<ComponentId>,
+        view_registry: &'a ViewRegistry,
+        on_tab_click: impl Fn(ComponentId) -> Message + 'a,
         on_resize_start: Message,
-        on_new_connection: Message,
     ) -> Element<'a, Message> {
         let theme = self.theme;
 
-        // Panel content with tab bar
+        // Panel content with dynamic tab bar from ViewRegistry
         let content = column![
-            self.tab_bar(active_tab, on_tab_click),
-            self.tab_content(active_tab, connections, on_new_connection),
+            self.tab_bar(active_component, view_registry, on_tab_click),
+            self.tab_content(active_component, view_registry),
         ]
         .spacing(0);
 
-        // Resize handle (vertical bar on right edge) - visual indicator
-        // TODO: Implement drag functionality using subscriptions for mouse events
-        let resize_handle = button(horizontal_space())
+        // Resize handle (vertical bar on right edge) - draggable
+        let resize_handle_visual = container(horizontal_space())
             .width(RESIZE_HANDLE_WIDTH)
             .height(Fill)
-            .on_press(on_resize_start)
-            .style(move |_theme, status| button::Style {
-                background: Some(if matches!(status, button::Status::Hovered) {
-                    theme.accent.into()
-                } else {
-                    theme.border.into()
-                }),
-                border: Border::default(),
+            .style(move |_theme| container::Style {
+                background: Some(theme.border.into()),
                 ..Default::default()
             });
+
+        // Make resize handle respond to mouse press with resize cursor
+        let resize_handle = mouse_area(resize_handle_visual)
+            .on_press(on_resize_start)
+            .interaction(Interaction::Pointer);
 
         // Combine content and resize handle
         let panel_with_handle = row![
@@ -120,22 +124,29 @@ impl LeftPanel {
             .into()
     }
 
-    /// Render the tab bar with clickable tabs
+    /// Render the tab bar with clickable tabs (horizontally scrollable)
+    ///
+    /// Tabs are dynamically generated from enabled views in the ViewRegistry.
     fn tab_bar<'a, Message: 'a + Clone>(
         &'a self,
-        active_tab: PanelTab,
-        on_tab_click: impl Fn(PanelTab) -> Message + 'a,
+        active_component: Option<ComponentId>,
+        view_registry: &'a ViewRegistry,
+        on_tab_click: impl Fn(ComponentId) -> Message + 'a,
     ) -> Element<'a, Message> {
         let theme = self.theme;
 
-        // Create tab buttons with proper tab styling
-        let tabs = PanelTab::all()
+        // Get enabled views for the left panel region
+        let enabled_views = view_registry.enabled_views(RegionId::LeftPanel);
+
+        // Create tab buttons from enabled views
+        let tabs = enabled_views
             .iter()
-            .fold(row![].spacing(0), |row, tab| {
-                let is_active = *tab == active_tab;
+            .fold(row![].spacing(0), |row, view| {
+                let component_id = view.component().id();
+                let is_active = active_component == Some(component_id);
 
                 let tab_button = button(
-                    text(tab.name())
+                    text(view.component().title())
                         .size(12)
                         .color(if is_active { theme.text } else { theme.text_secondary })
                 )
@@ -161,12 +172,20 @@ impl LeftPanel {
                         ..Default::default()
                     }
                 })
-                .on_press(on_tab_click(*tab));
+                .on_press(on_tab_click(component_id));
 
                 row.push(tab_button)
             });
 
-        container(tabs)
+        // Wrap tabs in horizontal scrollable to prevent wrapping
+        let scrollable_tabs = scrollable(tabs)
+            .direction(scrollable::Direction::Horizontal(
+                scrollable::Scrollbar::new()
+                    .width(4)
+                    .scroller_width(4)
+            ));
+
+        container(scrollable_tabs)
             .width(Fill)
             .style(move |_| container::Style {
                 background: Some(theme.background_secondary.into()),
@@ -180,91 +199,50 @@ impl LeftPanel {
             .into()
     }
 
-    /// Render content for the active tab
-    fn tab_content<'a, Message: 'a + Clone>(
+    /// Render content for the active component
+    ///
+    /// Delegates rendering to the active component's view() method.
+    fn tab_content<'a, Message: 'a + Clone + From<ComponentAction>>(
         &'a self,
-        active_tab: PanelTab,
-        connections: &'a [rusty_data::adapter::ConnectionConfig],
-        on_new_connection: Message,
+        active_component: Option<ComponentId>,
+        view_registry: &'a ViewRegistry,
     ) -> Element<'a, Message> {
         let theme = self.theme;
 
-        let content = match active_tab {
-            PanelTab::Servers => {
-                // New connection button
-                let new_conn_btn = button(text("+").size(16))
-                    .padding([4, 8])
-                    .style(move |_theme, status| button::Style {
-                        background: Some(theme.accent.into()),
-                        text_color: theme.text,
-                        border: Border {
-                            color: if matches!(status, button::Status::Hovered) {
-                                theme.text
-                            } else {
-                                theme.accent
-                            },
-                            width: 1.0,
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    })
-                    .on_press(on_new_connection);
-
-                let mut content_col = column![
-                    row![
-                        text("Servers").size(12).color(theme.text),
-                        horizontal_space(),
-                        new_conn_btn,
-                    ]
-                    .spacing(5),
-                    text("─────────").size(10).color(theme.border),
-                ]
-                .spacing(10);
-
-                if connections.is_empty() {
-                    content_col = content_col.push(
-                        text("(No connections)")
-                            .size(11)
-                            .color(theme.text_secondary),
-                    );
-                } else {
-                    for conn in connections {
-                        content_col = content_col.push(
-                            text(&conn.name)
-                                .size(11)
-                                .color(theme.text),
-                        );
-                    }
-                }
-
-                content_col.padding(15)
-            }
-
-            PanelTab::Tables => column![
-                text("Tables").size(12).color(theme.text),
-                text("─────────").size(10).color(theme.border),
-                text("(Select a server)")
+        // If no active component, show a message
+        let Some(component_id) = active_component else {
+            let content = column![
+                text("(No tabs enabled)")
                     .size(11)
                     .color(theme.text_secondary),
             ]
             .spacing(10)
-            .padding(15),
+            .padding(15);
 
-            PanelTab::Properties => column![
-                text("Properties").size(12).color(theme.text),
-                text("─────────").size(10).color(theme.border),
-                text("(Select an object)")
-                    .size(11)
-                    .color(theme.text_secondary),
-            ]
-            .spacing(10)
-            .padding(15),
+            return container(content)
+                .width(Fill)
+                .height(Fill)
+                .into();
         };
 
-        container(content)
-            .width(Fill)
-            .height(Fill)
-            .into()
+        // Get the active view from the registry
+        let Some(view) = view_registry.get_view(component_id) else {
+            let content = column![
+                text("(Component not found)")
+                    .size(11)
+                    .color(theme.text_secondary),
+            ]
+            .spacing(10)
+            .padding(15);
+
+            return container(content)
+                .width(Fill)
+                .height(Fill)
+                .into();
+        };
+
+        // Render the component's view and map ComponentAction to Message
+        view.component().view(theme).map(Message::from)
     }
 }
 
