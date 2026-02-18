@@ -5,7 +5,7 @@ use iced::mouse;
 use rusty_app::adapter_selector::{AdapterSelector, AdapterSelectorMessage};
 use rusty_app::components::{ComponentAction, ComponentId, PropertiesComponent, ServerListComponent, TableListComponent};
 use rusty_app::connection_form::{ConnectionForm, ConnectionFormData, ConnectionFormMessage};
-use rusty_app::connection_manager::ConnectionManager;
+use rusty_app::connection_manager::{ActiveConnection, ConnectionManager};
 use rusty_app::container::ContainerManager;
 use rusty_app::container::converter::sync_connections_with_containers;
 use rusty_app::left_panel::{self, LeftPanel};
@@ -305,6 +305,13 @@ impl Default for DatabaseIDE {
     }
 }
 
+/// Result of a connection operation
+#[derive(Debug, Clone)]
+enum ConnectionOperation {
+    Connected(String), // connection name
+    Disconnected,
+}
+
 #[derive(Debug, Clone)]
 enum Message {
     MenuToggle(MenuItem),
@@ -320,6 +327,10 @@ enum Message {
     QueryEditor(TabId, QueryEditorMessage),
     QueryExecutionResult(TabId, Result<QueryResult, String>),
     NewConnection,
+    ConnectToDatabase(ConnectionConfig, Option<String>), // config, password
+    DisconnectFromDatabase(String),                      // connection ID
+    ReconnectToDatabase(String),                         // connection ID
+    ConnectionOperationResult(String, Result<ConnectionOperation, String>), // connection ID, operation result
     ConnectionForm(ConnectionFormMessage),
     ConnectionTestResult(Result<(), String>),
     ComponentAction(ComponentAction),
@@ -1467,6 +1478,74 @@ impl DatabaseIDE {
                 self.oracle_test_result = Some(result.map(|_| ()));
                 Task::none()
             }
+            Message::ConnectToDatabase(config, password) => {
+                // Set status to connecting
+                self.connection_status = ConnectionStatus::Connecting(config.name.clone());
+
+                // Create active connection and attempt to connect
+                let config_clone = config.clone();
+                let password_clone = password.clone();
+
+                Task::perform(
+                    async move {
+                        let mut connection = ActiveConnection::new(config_clone.clone(), password_clone);
+                        let id = connection.id.clone();
+                        let name = config_clone.name.clone();
+                        match connection.connect().await {
+                            Ok(()) => Ok((id, name)),
+                            Err(e) => Err((id, e)),
+                        }
+                    },
+                    |result| match result {
+                        Ok((id, name)) => Message::ConnectionOperationResult(id, Ok(ConnectionOperation::Connected(name))),
+                        Err((id, e)) => Message::ConnectionOperationResult(id, Err(e)),
+                    }
+                )
+            }
+            Message::DisconnectFromDatabase(connection_id) => {
+                if self.connection_manager.get_connection(&connection_id).is_some() {
+                    Task::perform(
+                        async move {
+                            // Simulate disconnect operation - return the ID with result (no connection to store)
+                            Ok((connection_id, ()))
+                        },
+                        |result| match result {
+                            Ok((id, ())) => Message::ConnectionOperationResult(id, Ok(ConnectionOperation::Disconnected)),
+                            Err((id, e)) => Message::ConnectionOperationResult(id, Err(e)),
+                        }
+                    )
+                } else {
+                    Task::none()
+                }
+            }
+            Message::ReconnectToDatabase(connection_id) => {
+                if let Some(connection) = self.connection_manager.get_connection(&connection_id) {
+                    let config = connection.config.clone();
+                    let password = connection.password.clone();
+                    self.update(Message::ConnectToDatabase(config, password))
+                } else {
+                    Task::none()
+                }
+            }
+            Message::ConnectionOperationResult(_connection_id, result) => {
+                match result {
+                    Ok(ConnectionOperation::Connected(name)) => {
+                        // Connection successful - update status
+                        self.connection_status = ConnectionStatus::Connected(name);
+                        // TODO: Actually store the connection in the manager
+                        // (requires passing the connection through the message or storing it temporarily)
+                    }
+                    Ok(ConnectionOperation::Disconnected) => {
+                        // Disconnect successful - update status
+                        self.connection_status = ConnectionStatus::Disconnected;
+                    }
+                    Err(error) => {
+                        // Operation failed - show error
+                        self.connection_status = ConnectionStatus::Error(error);
+                    }
+                }
+                Task::none()
+            }
         }
     }
 
@@ -1693,7 +1772,7 @@ impl DatabaseIDE {
     }
 
     fn render_status_bar(&self) -> Element<'_, Message> {
-        self.status_bar.view(self.connection_status)
+        self.status_bar.view(&self.connection_status)
     }
 
     /// Execute query for the given tab

@@ -11,18 +11,22 @@ use iced::{Border, Element, Fill};
 pub const STATUS_BAR_HEIGHT: f32 = 30.0;
 
 /// Connection status for database connection indicator
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectionStatus {
     Disconnected,
-    Connected,
+    Connecting(String), // Connection name being connected
+    Connected(String),  // Connection name
+    Error(String),      // Error message
 }
 
 impl ConnectionStatus {
     /// Get the display text for this connection status
-    pub fn text(&self) -> &'static str {
+    pub fn text(&self) -> String {
         match self {
-            ConnectionStatus::Disconnected => "Disconnected",
-            ConnectionStatus::Connected => "Connected",
+            ConnectionStatus::Disconnected => "Disconnected".to_string(),
+            ConnectionStatus::Connecting(name) => format!("Connecting to {}...", name),
+            ConnectionStatus::Connected(name) => format!("Connected: {}", name),
+            ConnectionStatus::Error(msg) => format!("Error: {}", msg),
         }
     }
 }
@@ -48,14 +52,16 @@ impl StatusBar {
     /// Render the status bar component with connection status
     pub fn view<'a, Message: 'a + Clone>(
         &'a self,
-        connection_status: ConnectionStatus,
+        connection_status: &ConnectionStatus,
     ) -> Element<'a, Message> {
         let theme = self.theme;
 
         // Choose color based on connection status
         let status_color = match connection_status {
             ConnectionStatus::Disconnected => theme.text_secondary,
-            ConnectionStatus::Connected => theme.success,
+            ConnectionStatus::Connecting(_) => theme.accent,
+            ConnectionStatus::Connected(_) => theme.success,
+            ConnectionStatus::Error(_) => iced::Color::from_rgb(0.9, 0.3, 0.3),
         };
 
         // Status bar content with connection indicator
@@ -132,7 +138,18 @@ mod tests {
     #[test]
     fn test_connection_status_text() {
         assert_eq!(ConnectionStatus::Disconnected.text(), "Disconnected");
-        assert_eq!(ConnectionStatus::Connected.text(), "Connected");
+        assert_eq!(
+            ConnectionStatus::Connected("TestDB".to_string()).text(),
+            "Connected: TestDB"
+        );
+        assert_eq!(
+            ConnectionStatus::Connecting("TestDB".to_string()).text(),
+            "Connecting to TestDB..."
+        );
+        assert_eq!(
+            ConnectionStatus::Error("Test error".to_string()).text(),
+            "Error: Test error"
+        );
     }
 
     #[test]
@@ -144,8 +161,14 @@ mod tests {
     #[test]
     fn test_connection_status_equality() {
         assert_eq!(ConnectionStatus::Disconnected, ConnectionStatus::Disconnected);
-        assert_eq!(ConnectionStatus::Connected, ConnectionStatus::Connected);
-        assert_ne!(ConnectionStatus::Disconnected, ConnectionStatus::Connected);
+        assert_eq!(
+            ConnectionStatus::Connected("DB1".to_string()),
+            ConnectionStatus::Connected("DB1".to_string())
+        );
+        assert_ne!(
+            ConnectionStatus::Disconnected,
+            ConnectionStatus::Connected("DB1".to_string())
+        );
     }
 
     #[test]
@@ -157,8 +180,8 @@ mod tests {
 
     #[test]
     fn test_connection_status_cloneable() {
-        let status = ConnectionStatus::Connected;
-        let cloned = status;
+        let status = ConnectionStatus::Connected("Test".to_string());
+        let cloned = status.clone();
         assert_eq!(status, cloned);
     }
 }
