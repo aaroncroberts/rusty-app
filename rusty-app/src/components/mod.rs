@@ -9,10 +9,16 @@ use iced::Element;
 use crate::theme::ThemeColors;
 
 pub mod connection_form;
+pub mod editor;
+pub mod properties;
 pub mod server_list;
+pub mod table_list;
 
 pub use connection_form::{ConnectionFormComponent, ConnectionFormData};
+pub use editor::{EditorComponent, QueryTab};
+pub use properties::{PropertiesComponent, Property};
 pub use server_list::ServerListComponent;
+pub use table_list::{TableListComponent, TableMetadata};
 
 /// Unique identifier for each component type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
