@@ -97,26 +97,51 @@ impl EditMenuItem {
 /// Submenu items for the View menu
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewMenuItem {
-    ShowServerPanel,
-    ShowQueryPanel,
-    ShowResultsPanel,
+    ToggleLeftPanel,
+    Servers,
+    Tables,
+    Properties,
+    QueryEditor,
+    ConnectionManager,
 }
 
 impl ViewMenuItem {
     pub fn name(&self) -> &'static str {
         match self {
-            ViewMenuItem::ShowServerPanel => "Server Panel",
-            ViewMenuItem::ShowQueryPanel => "Query Panel",
-            ViewMenuItem::ShowResultsPanel => "Results Panel",
+            ViewMenuItem::ToggleLeftPanel => "Toggle Left Panel",
+            ViewMenuItem::Servers => "Servers",
+            ViewMenuItem::Tables => "Tables",
+            ViewMenuItem::Properties => "Properties",
+            ViewMenuItem::QueryEditor => "Query Editor",
+            ViewMenuItem::ConnectionManager => "Connection Manager",
         }
     }
 
     pub fn all() -> &'static [ViewMenuItem] {
         &[
-            ViewMenuItem::ShowServerPanel,
-            ViewMenuItem::ShowQueryPanel,
-            ViewMenuItem::ShowResultsPanel,
+            ViewMenuItem::ToggleLeftPanel,
+            ViewMenuItem::Servers,
+            ViewMenuItem::Tables,
+            ViewMenuItem::Properties,
+            ViewMenuItem::QueryEditor,
+            ViewMenuItem::ConnectionManager,
         ]
+    }
+
+    /// Map ViewMenuItem to ComponentId
+    ///
+    /// Returns None for ToggleLeftPanel (not a component),
+    /// returns Some(ComponentId) for all component views.
+    pub fn as_component_id(&self) -> Option<crate::components::ComponentId> {
+        use crate::components::ComponentId;
+        match self {
+            ViewMenuItem::ToggleLeftPanel => None,
+            ViewMenuItem::Servers => Some(ComponentId::ServerList),
+            ViewMenuItem::Tables => Some(ComponentId::TableList),
+            ViewMenuItem::Properties => Some(ComponentId::Properties),
+            ViewMenuItem::QueryEditor => Some(ComponentId::Editor),
+            ViewMenuItem::ConnectionManager => Some(ComponentId::ConnectionForm),
+        }
     }
 }
 
@@ -171,6 +196,7 @@ impl MenuBar {
     pub fn view<'a, Message: 'a + Clone>(
         &'a self,
         open_menu: Option<MenuItem>,
+        view_registry: &'a crate::views::ViewRegistry,
         on_menu_toggle: impl Fn(MenuItem) -> Message + 'a + Copy,
         on_menu_action: impl Fn(MenuAction) -> Message + 'a + Copy,
         on_close_menu: Message,
@@ -228,7 +254,7 @@ impl MenuBar {
 
         // If a menu is open, render the submenu
         if let Some(menu) = open_menu {
-            let submenu = self.render_submenu(menu, on_menu_action, on_close_menu);
+            let submenu = self.render_submenu(menu, view_registry, on_menu_action, on_close_menu);
             column![menu_bar, submenu].spacing(0).into()
         } else {
             menu_bar.into()
@@ -239,8 +265,9 @@ impl MenuBar {
     fn render_submenu<'a, Message: 'a + Clone>(
         &'a self,
         menu: MenuItem,
+        view_registry: &'a crate::views::ViewRegistry,
         on_action: impl Fn(MenuAction) -> Message + 'a + Copy,
-        on_close: Message,
+        _on_close: Message,
     ) -> Element<'a, Message> {
         let theme = self.theme;
 
@@ -301,8 +328,26 @@ impl MenuBar {
                 ViewMenuItem::all()
                     .iter()
                     .fold(column![].spacing(0), |col, item| {
+                        // Check if this view is enabled
+                        let is_enabled = if let Some(component_id) = item.as_component_id() {
+                            view_registry.is_enabled(component_id)
+                        } else {
+                            false // ToggleLeftPanel doesn't have a checkmark
+                        };
+
+                        // Build button text with checkmark if enabled
+                        let button_text = if item.as_component_id().is_some() {
+                            if is_enabled {
+                                format!("✓ {}", item.name())
+                            } else {
+                                format!("  {}", item.name())
+                            }
+                        } else {
+                            item.name().to_string()
+                        };
+
                         let item_button = button(
-                            text(item.name())
+                            text(button_text)
                                 .size(13)
                                 .color(theme.text)
                         )
@@ -415,7 +460,14 @@ mod tests {
         assert_eq!(MenuItem::Edit.name(), "Edit");
         assert_eq!(MenuItem::View.name(), "View");
         assert_eq!(MenuItem::Tools.name(), "Tools");
-        assert_eq!(MenuItem::NewConnection.name(), "File > New > Connection");
+    }
+
+    #[test]
+    fn test_file_menu_items() {
+        assert_eq!(FileMenuItem::NewConnection.name(), "New Connection");
+        assert_eq!(FileMenuItem::OpenConnection.name(), "Open Connection...");
+        assert_eq!(FileMenuItem::SaveQuery.name(), "Save Query");
+        assert_eq!(FileMenuItem::Exit.name(), "Exit");
     }
 
     #[test]

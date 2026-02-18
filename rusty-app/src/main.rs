@@ -1,11 +1,15 @@
 use iced::widget::{column, container, row};
-use iced::{Element, Fill, Task, Theme};
+use iced::{Element, Fill, Subscription, Task, Theme};
+use iced::event::Event;
+use iced::mouse;
+use rusty_app::components::ComponentAction;
 use rusty_app::connection_form::{ConnectionForm, ConnectionFormData, ConnectionFormMessage};
 use rusty_app::left_panel::{self, LeftPanel, PanelTab};
 use rusty_app::main_panel::{MainPanel, TabId};
-use rusty_app::menu_bar::{MenuBar, MenuItem};
+use rusty_app::menu_bar::{MenuBar, MenuAction, MenuItem};
 use rusty_app::status_bar::{ConnectionStatus, StatusBar};
 use rusty_app::theme::ThemeColors;
+use rusty_app::views::ViewRegistry;
 use rusty_data::adapter::{ConnectionConfig, DatabaseType};
 use rusty_data::config::ConfigManager;
 use rusty_logging::LoggingConfig;
@@ -28,7 +32,8 @@ pub fn main() -> iced::Result {
 
     info!(version = env!("CARGO_PKG_VERSION"), "rusty-app starting");
 
-    iced::application("Database IDE v0.0.1", DatabaseIDE::update, DatabaseIDE::view)
+    iced::application("rusty-app: the ide", DatabaseIDE::update, DatabaseIDE::view)
+        .subscription(DatabaseIDE::subscription)
         .theme(|_| Theme::TokyoNightStorm)
         .window_size((1280.0, 800.0))
         .run()
@@ -44,6 +49,7 @@ struct DatabaseIDE {
     panel_width: f32,
     active_tab: PanelTab,
     is_resizing: bool,
+    last_mouse_x: Option<f32>,
     connection_status: ConnectionStatus,
     config_manager: ConfigManager,
     saved_connections: Vec<ConnectionConfig>,
@@ -51,6 +57,9 @@ struct DatabaseIDE {
     connection_form_data: ConnectionFormData,
     testing_connection: bool,
     test_result: Option<Result<(), String>>,
+    open_menu: Option<MenuItem>,
+    show_left_panel: bool,
+    view_registry: ViewRegistry,
 }
 
 impl Default for DatabaseIDE {
@@ -85,6 +94,7 @@ impl Default for DatabaseIDE {
             panel_width: left_panel::DEFAULT_WIDTH,
             active_tab: PanelTab::default(),
             is_resizing: false,
+            last_mouse_x: None,
             connection_status: ConnectionStatus::default(),
             config_manager,
             saved_connections,
@@ -92,13 +102,18 @@ impl Default for DatabaseIDE {
             connection_form_data: ConnectionFormData::new(),
             testing_connection: false,
             test_result: None,
+            open_menu: None,
+            show_left_panel: true,
+            view_registry: ViewRegistry::new(),
         }
     }
 }
 
 #[derive(Debug, Clone)]
 enum Message {
-    MenuItemClicked(MenuItem),
+    MenuToggle(MenuItem),
+    MenuAction(MenuAction),
+    CloseMenu,
     TabClicked(PanelTab),
     ResizeStart,
     ResizeMove(f32),
@@ -108,8 +123,8 @@ enum Message {
     MainTabClosed(TabId),
     NewConnection,
     ConnectionForm(ConnectionFormMessage),
-    CancelConnectionForm,
     ConnectionTestResult(Result<(), String>),
+    ComponentAction(ComponentAction),
 }
 
 /// Test database connection with appropriate adapter
@@ -143,9 +158,52 @@ async fn test_database_connection(config: ConnectionConfig, password: Option<Str
 impl DatabaseIDE {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::MenuItemClicked(item) => {
-                // Log menu item clicks (temporary implementation)
-                println!("Menu item clicked: {:?}", item);
+            Message::MenuToggle(menu) => {
+                // Toggle menu open/close
+                if self.open_menu == Some(menu) {
+                    self.open_menu = None;
+                } else {
+                    self.open_menu = Some(menu);
+                }
+                Task::none()
+            }
+            Message::MenuAction(action) => {
+                // Close menu after action
+                self.open_menu = None;
+
+                // Handle menu actions
+                use rusty_app::menu_bar::{FileMenuItem, ViewMenuItem};
+                match action {
+                    MenuAction::File(FileMenuItem::NewConnection) => {
+                        self.showing_connection_form = true;
+                        self.connection_form_data = ConnectionFormData::new();
+                    }
+                    MenuAction::File(FileMenuItem::Exit) => {
+                        // TODO: Implement clean exit
+                        println!("Exit requested");
+                    }
+                    MenuAction::View(view_item) => {
+                        match view_item {
+                            ViewMenuItem::ToggleLeftPanel => {
+                                self.show_left_panel = !self.show_left_panel;
+                            }
+                            _ => {
+                                // Toggle component views in ViewRegistry
+                                if let Some(component_id) = view_item.as_component_id() {
+                                    self.view_registry.toggle(component_id);
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        // Log other menu actions (temporary implementation)
+                        println!("Menu action: {:?}", action);
+                    }
+                }
+                Task::none()
+            }
+            Message::CloseMenu => {
+                self.open_menu = None;
                 Task::none()
             }
             Message::TabClicked(tab) => {
@@ -154,16 +212,22 @@ impl DatabaseIDE {
             }
             Message::ResizeStart => {
                 self.is_resizing = true;
+                self.last_mouse_x = None;
                 Task::none()
             }
-            Message::ResizeMove(delta_x) => {
+            Message::ResizeMove(mouse_x) => {
                 if self.is_resizing {
-                    self.panel_width = left_panel::constrain_width(self.panel_width + delta_x);
+                    if let Some(last_x) = self.last_mouse_x {
+                        let delta_x = mouse_x - last_x;
+                        self.panel_width = left_panel::constrain_width(self.panel_width + delta_x);
+                    }
+                    self.last_mouse_x = Some(mouse_x);
                 }
                 Task::none()
             }
             Message::ResizeEnd => {
                 self.is_resizing = false;
+                self.last_mouse_x = None;
                 Task::none()
             }
             Message::NewMainTab => {
@@ -265,17 +329,31 @@ impl DatabaseIDE {
                     }
                 }
             }
-            Message::CancelConnectionForm => {
-                self.showing_connection_form = false;
-                self.test_result = None;
-                Task::none()
-            }
             Message::ConnectionTestResult(result) => {
                 self.testing_connection = false;
                 self.test_result = Some(result);
                 Task::none()
             }
+            Message::ComponentAction(action) => {
+                // Placeholder: handle component actions
+                // TODO: Implement specific handlers for each component action variant
+                println!("Component action: {:?}", action);
+                Task::none()
+            }
         }
+    }
+
+    /// Subscribe to mouse events for drag-to-resize functionality
+    fn subscription(&self) -> Subscription<Message> {
+        iced::event::listen_with(|event, _status, _window| match event {
+            Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                Some(Message::ResizeMove(position.x))
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                Some(Message::ResizeEnd)
+            }
+            _ => None,
+        })
     }
 
     /// Convert ConnectionFormData to ConnectionConfig
@@ -368,17 +446,26 @@ impl DatabaseIDE {
     }
 
     fn menu_bar(&self) -> Element<'_, Message> {
-        self.menu_bar.view(Message::MenuItemClicked)
+        self.menu_bar.view(
+            self.open_menu,
+            &self.view_registry,
+            Message::MenuToggle,
+            Message::MenuAction,
+            Message::CloseMenu,
+        )
     }
 
     fn content_area(&self) -> Element<'_, Message> {
-        let content = row![
-            self.left_panel(),
-            self.main_panel(),
-        ]
-        .spacing(0);
+        let mut content_row = row![].spacing(0);
 
-        container(content)
+        // Conditionally show left panel
+        if self.show_left_panel {
+            content_row = content_row.push(self.left_panel());
+        }
+
+        content_row = content_row.push(self.main_panel());
+
+        container(content_row)
             .width(Fill)
             .height(Fill)
             .into()
