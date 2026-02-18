@@ -341,6 +341,438 @@ impl DatabaseAdapter for MssqlAdapter {
     fn database_type(&self) -> DatabaseType {
         DatabaseType::SQLServer
     }
+
+    // ===== Server & Database Introspection Methods =====
+
+    #[instrument(skip(self))]
+    async fn get_server_info(&self) -> Result<ServerInfo> {
+        info!("Retrieving SQL Server info");
+
+        let mut client = self.pool.as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
+            .lock().await;
+
+        // Get version
+        let version_query = "SELECT @@VERSION as version, SERVERPROPERTY('ProductVersion') as product_version, SERVERPROPERTY('Edition') as edition";
+        let mut stream = client.query(version_query, &[]).await
+            .map_err(|e| DataError::Query(format!("Failed to get server version: {}", e)))?;
+
+        let mut extra_info = std::collections::HashMap::new();
+        let mut version = String::from("unknown");
+
+        while let Some(item) = stream.try_next().await
+            .map_err(|e| DataError::Query(format!("Failed to iterate version result: {}", e)))? {
+            if let QueryItem::Row(row) = item {
+                if let Ok(Some(v)) = row.try_get::<&str, _>("version") {
+                    version = v.to_string();
+                }
+                if let Ok(Some(v)) = row.try_get::<&str, _>("product_version") {
+                    extra_info.insert("product_version".to_string(), v.to_string());
+                }
+                if let Ok(Some(v)) = row.try_get::<&str, _>("edition") {
+                    extra_info.insert("edition".to_string(), v.to_string());
+                }
+            }
+        }
+
+        Ok(ServerInfo {
+            version,
+            server_type: "Microsoft SQL Server".to_string(),
+            extra_info,
+        })
+    }
+
+    #[instrument(skip(self), fields(database = %database_name))]
+    async fn get_database_metadata(&self, database_name: &str) -> Result<DatabaseMetadata> {
+        info!("Retrieving metadata for database: {}", database_name);
+
+        let mut client = self.pool.as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
+            .lock().await;
+
+        let query = format!(
+            "SELECT
+                name,
+                CAST(SUM(size) * 8 / 1024 AS BIGINT) as size_mb,
+                suser_sname(owner_sid) as owner,
+                collation_name,
+                create_date,
+                recovery_model_desc,
+                compatibility_level
+            FROM sys.databases
+            WHERE name = '{}'
+            GROUP BY name, owner_sid, collation_name, create_date, recovery_model_desc, compatibility_level",
+            database_name
+        );
+
+        let mut stream = client.query(query.as_str(), &[]).await
+            .map_err(|e| DataError::Query(format!("Failed to get database metadata for '{}': {}", database_name, e)))?;
+
+        let mut size_bytes = None;
+        let mut owner = None;
+        let mut encoding = None;
+        let mut created_at = None;
+        let mut extra_info = std::collections::HashMap::new();
+
+        while let Some(item) = stream.try_next().await
+            .map_err(|e| DataError::Query(format!("Failed to iterate database metadata: {}", e)))? {
+            if let QueryItem::Row(row) = item {
+                if let Ok(Some(size_mb)) = row.try_get::<i64, _>("size_mb") {
+                    size_bytes = Some(size_mb * 1024 * 1024); // Convert MB to bytes
+                }
+                if let Ok(Some(o)) = row.try_get::<&str, _>("owner") {
+                    owner = Some(o.to_string());
+                }
+                if let Ok(Some(c)) = row.try_get::<&str, _>("collation_name") {
+                    encoding = Some(c.to_string());
+                }
+                if let Ok(Some(recovery)) = row.try_get::<&str, _>("recovery_model_desc") {
+                    extra_info.insert("recovery_model".to_string(), recovery.to_string());
+                }
+                if let Ok(Some(compat)) = row.try_get::<i32, _>("compatibility_level") {
+                    extra_info.insert("compatibility_level".to_string(), compat.to_string());
+                }
+            }
+        }
+
+        Ok(DatabaseMetadata {
+            name: database_name.to_string(),
+            size_bytes,
+            owner,
+            encoding,
+            created_at,
+            extra_info,
+        })
+    }
+
+    #[instrument(skip(self), fields(table = %table_name))]
+    async fn get_table_metadata(&self, table_name: &str, schema: Option<&str>) -> Result<TableMetadata> {
+        info!("Retrieving metadata for table: {}", table_name);
+
+        let schema_name = schema.unwrap_or("dbo");
+        let mut client = self.pool.as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
+            .lock().await;
+
+        let query = format!(
+            "SELECT
+                t.name as table_name,
+                s.name as schema_name,
+                SUM(a.total_pages) * 8 as size_kb,
+                SUM(p.rows) as row_count,
+                t.create_date,
+                t.type_desc
+            FROM sys.tables t
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            INNER JOIN sys.indexes i ON t.object_id = i.object_id
+            INNER JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
+            INNER JOIN sys.allocation_units a ON p.partition_id = a.container_id
+            WHERE t.name = '{}' AND s.name = '{}'
+            GROUP BY t.name, s.name, t.create_date, t.type_desc",
+            table_name, schema_name
+        );
+
+        let mut stream = client.query(query.as_str(), &[]).await
+            .map_err(|e| DataError::Query(format!("Failed to get table metadata for '{}': {}", table_name, e)))?;
+
+        let mut size_bytes = None;
+        let mut row_count = None;
+        let mut table_type = None;
+
+        while let Some(item) = stream.try_next().await
+            .map_err(|e| DataError::Query(format!("Failed to iterate table metadata: {}", e)))? {
+            if let QueryItem::Row(row) = item {
+                if let Ok(Some(size_kb)) = row.try_get::<i64, _>("size_kb") {
+                    size_bytes = Some(size_kb * 1024); // Convert KB to bytes
+                }
+                if let Ok(Some(rc)) = row.try_get::<i64, _>("row_count") {
+                    row_count = Some(rc);
+                }
+                if let Ok(Some(tt)) = row.try_get::<&str, _>("type_desc") {
+                    table_type = Some(tt.to_string());
+                }
+            }
+        }
+
+        Ok(TableMetadata {
+            name: table_name.to_string(),
+            schema: Some(schema_name.to_string()),
+            size_bytes,
+            row_count,
+            created_at: None,
+            table_type,
+        })
+    }
+
+    #[instrument(skip(self), fields(table = %table_name))]
+    async fn get_indexes(&self, table_name: &str, schema: Option<&str>) -> Result<Vec<IndexInfo>> {
+        info!("Retrieving indexes for table: {}", table_name);
+
+        let schema_name = schema.unwrap_or("dbo");
+        let mut client = self.pool.as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
+            .lock().await;
+
+        let query = format!(
+            "SELECT
+                i.name as index_name,
+                i.is_unique,
+                i.is_primary_key,
+                i.type_desc,
+                STRING_AGG(c.name, ',') as columns
+            FROM sys.indexes i
+            INNER JOIN sys.tables t ON i.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            INNER JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+            INNER JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+            WHERE t.name = '{}' AND s.name = '{}'
+            GROUP BY i.name, i.is_unique, i.is_primary_key, i.type_desc",
+            table_name, schema_name
+        );
+
+        let mut stream = client.query(query.as_str(), &[]).await
+            .map_err(|e| DataError::Query(format!("Failed to get indexes for '{}': {}", table_name, e)))?;
+
+        let mut indexes = Vec::new();
+
+        while let Some(item) = stream.try_next().await
+            .map_err(|e| DataError::Query(format!("Failed to iterate indexes: {}", e)))? {
+            if let QueryItem::Row(row) = item {
+                let index_name = row.try_get::<&str, _>("index_name")
+                    .map(|s| s.unwrap_or("").to_string())
+                    .unwrap_or_default();
+
+                let columns_str = row.try_get::<&str, _>("columns")
+                    .map(|s| s.unwrap_or("").to_string())
+                    .unwrap_or_default();
+                let columns: Vec<String> = columns_str.split(',').map(|s| s.trim().to_string()).collect();
+
+                let is_unique = row.try_get::<bool, _>("is_unique").unwrap_or(Some(false)).unwrap_or(false);
+                let is_primary = row.try_get::<bool, _>("is_primary_key").unwrap_or(Some(false)).unwrap_or(false);
+                let index_type = row.try_get::<&str, _>("type_desc")
+                    .map(|s| s.map(|s| s.to_string()))
+                    .unwrap_or(None);
+
+                indexes.push(IndexInfo {
+                    name: index_name,
+                    table_name: table_name.to_string(),
+                    schema: Some(schema_name.to_string()),
+                    columns,
+                    is_unique,
+                    is_primary,
+                    index_type,
+                });
+            }
+        }
+
+        Ok(indexes)
+    }
+
+    #[instrument(skip(self), fields(table = %table_name))]
+    async fn get_foreign_keys(&self, table_name: &str, schema: Option<&str>) -> Result<Vec<ForeignKeyInfo>> {
+        info!("Retrieving foreign keys for table: {}", table_name);
+
+        let schema_name = schema.unwrap_or("dbo");
+        let mut client = self.pool.as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
+            .lock().await;
+
+        let query = format!(
+            "SELECT
+                fk.name as fk_name,
+                OBJECT_NAME(fk.parent_object_id) as table_name,
+                SCHEMA_NAME(t1.schema_id) as schema_name,
+                STRING_AGG(c1.name, ',') as columns,
+                OBJECT_NAME(fk.referenced_object_id) as referenced_table,
+                SCHEMA_NAME(t2.schema_id) as referenced_schema,
+                STRING_AGG(c2.name, ',') as referenced_columns,
+                fk.delete_referential_action_desc as on_delete,
+                fk.update_referential_action_desc as on_update
+            FROM sys.foreign_keys fk
+            INNER JOIN sys.tables t1 ON fk.parent_object_id = t1.object_id
+            INNER JOIN sys.tables t2 ON fk.referenced_object_id = t2.object_id
+            INNER JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id
+            INNER JOIN sys.columns c1 ON fkc.parent_object_id = c1.object_id AND fkc.parent_column_id = c1.column_id
+            INNER JOIN sys.columns c2 ON fkc.referenced_object_id = c2.object_id AND fkc.referenced_column_id = c2.column_id
+            WHERE OBJECT_NAME(fk.parent_object_id) = '{}' AND SCHEMA_NAME(t1.schema_id) = '{}'
+            GROUP BY fk.name, fk.parent_object_id, t1.schema_id, fk.referenced_object_id, t2.schema_id, fk.delete_referential_action_desc, fk.update_referential_action_desc",
+            table_name, schema_name
+        );
+
+        let mut stream = client.query(query.as_str(), &[]).await
+            .map_err(|e| DataError::Query(format!("Failed to get foreign keys for '{}': {}", table_name, e)))?;
+
+        let mut fks = Vec::new();
+
+        while let Some(item) = stream.try_next().await
+            .map_err(|e| DataError::Query(format!("Failed to iterate foreign keys: {}", e)))? {
+            if let QueryItem::Row(row) = item {
+                let fk_name = row.try_get::<&str, _>("fk_name")
+                    .map(|s| s.unwrap_or("").to_string())
+                    .unwrap_or_default();
+
+                let columns_str = row.try_get::<&str, _>("columns")
+                    .map(|s| s.unwrap_or("").to_string())
+                    .unwrap_or_default();
+                let columns: Vec<String> = columns_str.split(',').map(|s| s.trim().to_string()).collect();
+
+                let referenced_table = row.try_get::<&str, _>("referenced_table")
+                    .map(|s| s.unwrap_or("").to_string())
+                    .unwrap_or_default();
+
+                let referenced_schema = row.try_get::<&str, _>("referenced_schema")
+                    .map(|s| s.map(|s| s.to_string()))
+                    .unwrap_or(None);
+
+                let referenced_columns_str = row.try_get::<&str, _>("referenced_columns")
+                    .map(|s| s.unwrap_or("").to_string())
+                    .unwrap_or_default();
+                let referenced_columns: Vec<String> = referenced_columns_str.split(',').map(|s| s.trim().to_string()).collect();
+
+                let on_delete = row.try_get::<&str, _>("on_delete")
+                    .map(|s| s.map(|s| s.to_string()))
+                    .unwrap_or(None);
+
+                let on_update = row.try_get::<&str, _>("on_update")
+                    .map(|s| s.map(|s| s.to_string()))
+                    .unwrap_or(None);
+
+                fks.push(ForeignKeyInfo {
+                    name: fk_name,
+                    table_name: table_name.to_string(),
+                    schema: Some(schema_name.to_string()),
+                    columns,
+                    referenced_table,
+                    referenced_schema,
+                    referenced_columns,
+                    on_delete,
+                    on_update,
+                });
+            }
+        }
+
+        Ok(fks)
+    }
+
+    #[instrument(skip(self))]
+    async fn get_views(&self, schema: Option<&str>) -> Result<Vec<ViewInfo>> {
+        info!("Retrieving views");
+
+        let schema_name = schema.unwrap_or("dbo");
+        let mut client = self.pool.as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
+            .lock().await;
+
+        let query = format!(
+            "SELECT v.name, s.name as schema_name
+            FROM sys.views v
+            INNER JOIN sys.schemas s ON v.schema_id = s.schema_id
+            WHERE s.name = '{}'",
+            schema_name
+        );
+
+        let mut stream = client.query(query.as_str(), &[]).await
+            .map_err(|e| DataError::Query(format!("Failed to get views: {}", e)))?;
+
+        let mut views = Vec::new();
+
+        while let Some(item) = stream.try_next().await
+            .map_err(|e| DataError::Query(format!("Failed to iterate views: {}", e)))? {
+            if let QueryItem::Row(row) = item {
+                let name = row.try_get::<&str, _>("name")
+                    .map(|s| s.unwrap_or("").to_string())
+                    .unwrap_or_default();
+
+                let schema = row.try_get::<&str, _>("schema_name")
+                    .map(|s| s.map(|s| s.to_string()))
+                    .unwrap_or(None);
+
+                views.push(ViewInfo {
+                    name,
+                    schema,
+                    definition: None, // Definition retrieved separately
+                });
+            }
+        }
+
+        Ok(views)
+    }
+
+    #[instrument(skip(self), fields(view = %view_name))]
+    async fn get_view_definition(&self, view_name: &str, schema: Option<&str>) -> Result<Option<String>> {
+        info!("Retrieving view definition for: {}", view_name);
+
+        let schema_name = schema.unwrap_or("dbo");
+        let mut client = self.pool.as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
+            .lock().await;
+
+        let query = format!(
+            "SELECT OBJECT_DEFINITION(OBJECT_ID('{}.{}')) as definition",
+            schema_name, view_name
+        );
+
+        let mut stream = client.query(query.as_str(), &[]).await
+            .map_err(|e| DataError::Query(format!("Failed to get view definition for '{}': {}", view_name, e)))?;
+
+        while let Some(item) = stream.try_next().await
+            .map_err(|e| DataError::Query(format!("Failed to iterate view definition: {}", e)))? {
+            if let QueryItem::Row(row) = item {
+                if let Ok(Some(def)) = row.try_get::<&str, _>("definition") {
+                    return Ok(Some(def.to_string()));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    #[instrument(skip(self))]
+    async fn list_stored_procedures(&self, schema: Option<&str>) -> Result<Vec<ProcedureInfo>> {
+        info!("Listing stored procedures");
+
+        let schema_name = schema.unwrap_or("dbo");
+        let mut client = self.pool.as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
+            .lock().await;
+
+        let query = format!(
+            "SELECT p.name, s.name as schema_name, p.type_desc
+            FROM sys.procedures p
+            INNER JOIN sys.schemas s ON p.schema_id = s.schema_id
+            WHERE s.name = '{}'",
+            schema_name
+        );
+
+        let mut stream = client.query(query.as_str(), &[]).await
+            .map_err(|e| DataError::Query(format!("Failed to list stored procedures: {}", e)))?;
+
+        let mut procedures = Vec::new();
+
+        while let Some(item) = stream.try_next().await
+            .map_err(|e| DataError::Query(format!("Failed to iterate procedures: {}", e)))? {
+            if let QueryItem::Row(row) = item {
+                let name = row.try_get::<&str, _>("name")
+                    .map(|s| s.unwrap_or("").to_string())
+                    .unwrap_or_default();
+
+                let schema = row.try_get::<&str, _>("schema_name")
+                    .map(|s| s.map(|s| s.to_string()))
+                    .unwrap_or(None);
+
+                let language = Some("T-SQL".to_string()); // SQL Server uses T-SQL
+
+                procedures.push(ProcedureInfo {
+                    name,
+                    schema,
+                    return_type: None, // Would require more complex query
+                    language,
+                });
+            }
+        }
+
+        Ok(procedures)
+    }
 }
 
 #[cfg(test)]

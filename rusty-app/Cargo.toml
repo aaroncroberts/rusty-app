@@ -25,3 +25,4 @@ serde_json = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
+thiserror = { workspace = true }

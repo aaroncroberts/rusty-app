@@ -22,12 +22,12 @@ use tracing::{info, debug};
 mod postgres_tests {
     use super::*;
     use rusty_data::adapters::postgres::PostgresAdapter;
-    use std::sync::Once;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     const TEST_PASSWORD: &str = "test_password";
     const TEST_DB_NAME: &str = "rusty_test_postgres";
 
-    static INIT: Once = Once::new();
+    static INIT: AtomicBool = AtomicBool::new(false);
 
     fn get_postgres_config(database: &str) -> ConnectionConfig {
         ConnectionConfig {
@@ -63,12 +63,10 @@ mod postgres_tests {
     /// Setup function called before each test
     async fn setup() -> Result<PostgresAdapter> {
         // Ensure database exists (happens once)
-        INIT.call_once(|| {
-            tokio::runtime::Runtime::new()
-                .unwrap()
-                .block_on(ensure_test_database())
-                .unwrap();
-        });
+        if !INIT.load(Ordering::Relaxed) {
+            ensure_test_database().await?;
+            INIT.store(true, Ordering::Relaxed);
+        }
 
         let mut adapter = PostgresAdapter::new();
         let config = get_postgres_config(TEST_DB_NAME);
@@ -2457,6 +2455,298 @@ mod mssql_tests {
 
     #[tokio::test]
     #[ignore]
+    async fn test_mssql_get_server_info() -> Result<()> {
+        info!("Starting test: test_mssql_get_server_info");
+
+        let mut adapter = setup().await?;
+
+        info!("Testing get_server_info");
+        let server_info = adapter.get_server_info().await?;
+
+        assert_eq!(server_info.server_type, "Microsoft SQL Server");
+        assert!(!server_info.version.is_empty());
+        debug!("Server version: {}", server_info.version);
+        debug!("Server info: {:?}", server_info.extra_info);
+
+        adapter.disconnect().await?;
+        info!("Test completed: test_mssql_get_server_info");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_mssql_get_database_metadata() -> Result<()> {
+        info!("Starting test: test_mssql_get_database_metadata");
+
+        let mut adapter = setup().await?;
+
+        info!("Testing get_database_metadata");
+        let db_meta = adapter.get_database_metadata(TEST_DB_NAME).await?;
+
+        assert_eq!(db_meta.name, TEST_DB_NAME);
+        assert!(db_meta.size_bytes.is_some());
+        debug!("Database size: {:?} bytes", db_meta.size_bytes);
+        debug!("Recovery model: {:?}", db_meta.extra_info.get("recovery_model"));
+
+        adapter.disconnect().await?;
+        info!("Test completed: test_mssql_get_database_metadata");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_mssql_get_table_metadata() -> Result<()> {
+        info!("Starting test: test_mssql_get_table_metadata");
+
+        let mut adapter = setup().await?;
+
+        // Create test table
+        let table_name = "test_mssql_metadata_table";
+        info!("Creating test table");
+        adapter
+            .execute_query(&format!(
+                "CREATE TABLE {} (id INT PRIMARY KEY, name NVARCHAR(100))",
+                table_name
+            ))
+            .await?;
+
+        adapter
+            .execute_query(&format!(
+                "INSERT INTO {} (id, name) VALUES (1, 'test1'), (2, 'test2'), (3, 'test3')",
+                table_name
+            ))
+            .await?;
+
+        // Get table metadata
+        info!("Testing get_table_metadata");
+        let table_meta = adapter.get_table_metadata(table_name, Some("dbo")).await?;
+
+        assert_eq!(table_meta.name, table_name);
+        assert_eq!(table_meta.schema, Some("dbo".to_string()));
+        assert!(table_meta.row_count.is_some());
+        debug!("Table size: {:?} bytes", table_meta.size_bytes);
+        debug!("Row count: {:?}", table_meta.row_count);
+
+        // Cleanup
+        adapter
+            .execute_query(&format!("DROP TABLE {}", table_name))
+            .await?;
+
+        adapter.disconnect().await?;
+        info!("Test completed: test_mssql_get_table_metadata");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_mssql_get_indexes() -> Result<()> {
+        info!("Starting test: test_mssql_get_indexes");
+
+        let mut adapter = setup().await?;
+
+        // Create test table with indexes
+        let table_name = "test_mssql_indexes_table";
+        info!("Creating test table with indexes");
+        adapter
+            .execute_query(&format!(
+                "CREATE TABLE {} (
+                    id INT PRIMARY KEY,
+                    email NVARCHAR(100) UNIQUE,
+                    name NVARCHAR(100),
+                    status NVARCHAR(50)
+                )",
+                table_name
+            ))
+            .await?;
+
+        adapter
+            .execute_query(&format!(
+                "CREATE INDEX idx_name ON {}(name)",
+                table_name
+            ))
+            .await?;
+
+        // Get indexes
+        info!("Testing get_indexes");
+        let indexes = adapter.get_indexes(table_name, Some("dbo")).await?;
+
+        assert!(indexes.len() >= 2); // PRIMARY KEY, UNIQUE
+
+        let primary_idx = indexes.iter().find(|i| i.is_primary);
+        assert!(primary_idx.is_some());
+
+        debug!("Found {} indexes", indexes.len());
+        for idx in &indexes {
+            debug!(
+                "Index: {} (columns: {:?}, unique: {}, primary: {})",
+                idx.name, idx.columns, idx.is_unique, idx.is_primary
+            );
+        }
+
+        // Cleanup
+        adapter
+            .execute_query(&format!("DROP TABLE {}", table_name))
+            .await?;
+
+        adapter.disconnect().await?;
+        info!("Test completed: test_mssql_get_indexes");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_mssql_get_foreign_keys() -> Result<()> {
+        info!("Starting test: test_mssql_get_foreign_keys");
+
+        let mut adapter = setup().await?;
+
+        // Create parent and child tables with FK
+        info!("Creating tables with foreign key");
+        adapter
+            .execute_query(
+                "CREATE TABLE test_mssql_fk_parent (
+                    id INT PRIMARY KEY,
+                    name NVARCHAR(100)
+                )",
+            )
+            .await?;
+
+        adapter
+            .execute_query(
+                "CREATE TABLE test_mssql_fk_child (
+                    id INT PRIMARY KEY,
+                    parent_id INT,
+                    data NVARCHAR(100),
+                    FOREIGN KEY (parent_id) REFERENCES test_mssql_fk_parent(id) ON DELETE CASCADE
+                )",
+            )
+            .await?;
+
+        // Get foreign keys
+        info!("Testing get_foreign_keys");
+        let fks = adapter
+            .get_foreign_keys("test_mssql_fk_child", Some("dbo"))
+            .await?;
+
+        assert_eq!(fks.len(), 1);
+        let fk = &fks[0];
+        assert_eq!(fk.table_name, "test_mssql_fk_child");
+        assert_eq!(fk.referenced_table, "test_mssql_fk_parent");
+        assert!(fk.columns.contains(&"parent_id".to_string()));
+        debug!("Foreign key: {} -> {}", fk.name, fk.referenced_table);
+
+        // Cleanup
+        adapter
+            .execute_query("DROP TABLE test_mssql_fk_child")
+            .await?;
+        adapter
+            .execute_query("DROP TABLE test_mssql_fk_parent")
+            .await?;
+
+        adapter.disconnect().await?;
+        info!("Test completed: test_mssql_get_foreign_keys");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_mssql_get_views() -> Result<()> {
+        info!("Starting test: test_mssql_get_views");
+
+        let mut adapter = setup().await?;
+
+        // Create test table and view
+        info!("Creating test table and view");
+        adapter
+            .execute_query(
+                "CREATE TABLE test_mssql_view_source (
+                    id INT PRIMARY KEY,
+                    value INT
+                )",
+            )
+            .await?;
+
+        adapter
+            .execute_query(
+                "CREATE VIEW test_mssql_my_view AS
+                SELECT id, value * 2 AS doubled
+                FROM test_mssql_view_source",
+            )
+            .await?;
+
+        // Get views
+        info!("Testing get_views");
+        let views = adapter.get_views(Some("dbo")).await?;
+
+        let test_view = views.iter().find(|v| v.name == "test_mssql_my_view");
+        assert!(test_view.is_some());
+        debug!("Found {} views", views.len());
+
+        // Get view definition
+        info!("Testing get_view_definition");
+        let definition = adapter
+            .get_view_definition("test_mssql_my_view", Some("dbo"))
+            .await?;
+        assert!(definition.is_some());
+        assert!(definition.unwrap().contains("test_mssql_view_source"));
+        debug!("View definition retrieved");
+
+        // Cleanup
+        adapter
+            .execute_query("DROP VIEW test_mssql_my_view")
+            .await?;
+        adapter
+            .execute_query("DROP TABLE test_mssql_view_source")
+            .await?;
+
+        adapter.disconnect().await?;
+        info!("Test completed: test_mssql_get_views");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_mssql_list_stored_procedures() -> Result<()> {
+        info!("Starting test: test_mssql_list_stored_procedures");
+
+        let mut adapter = setup().await?;
+
+        // Create test stored procedure
+        info!("Creating test stored procedure");
+        adapter
+            .execute_query(
+                "CREATE PROCEDURE test_add_numbers
+                    @a INT,
+                    @b INT
+                AS
+                BEGIN
+                    SELECT @a + @b AS result
+                END",
+            )
+            .await?;
+
+        // List procedures
+        info!("Testing list_stored_procedures");
+        let procedures = adapter.list_stored_procedures(Some("dbo")).await?;
+
+        let test_proc = procedures.iter().find(|p| p.name == "test_add_numbers");
+        assert!(test_proc.is_some());
+        let proc = test_proc.unwrap();
+        assert_eq!(proc.language, Some("T-SQL".to_string()));
+        debug!("Found procedure: {} (language: {:?})", proc.name, proc.language);
+
+        // Cleanup
+        adapter
+            .execute_query("DROP PROCEDURE test_add_numbers")
+            .await?;
+
+        adapter.disconnect().await?;
+        info!("Test completed: test_mssql_list_stored_procedures");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
     async fn test_zzz_cleanup_mssql_database() -> Result<()> {
         info!("Cleaning up MSSQL test database: {}", TEST_DB_NAME);
 
@@ -2763,6 +3053,296 @@ mod oracle_tests {
 
         adapter.disconnect().await?;
         info!("Test completed: test_oracle_crud_operations");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_oracle_get_server_info() -> Result<()> {
+        info!("Starting test: test_oracle_get_server_info");
+
+        let mut adapter = setup().await?;
+
+        info!("Testing get_server_info");
+        let server_info = adapter.get_server_info().await?;
+
+        assert_eq!(server_info.server_type, "Oracle Database");
+        assert!(!server_info.version.is_empty());
+        assert!(server_info.version.contains("Oracle"));
+        debug!("Server version: {}", server_info.version);
+
+        adapter.disconnect().await?;
+        info!("Test completed: test_oracle_get_server_info");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_oracle_get_database_metadata() -> Result<()> {
+        info!("Starting test: test_oracle_get_database_metadata");
+
+        let mut adapter = setup().await?;
+
+        info!("Testing get_database_metadata");
+        let db_meta = adapter.get_database_metadata("XE").await?;
+
+        assert_eq!(db_meta.name, "XE");
+        debug!("Database encoding: {:?}", db_meta.encoding);
+        debug!("Database log mode: {:?}", db_meta.extra_info.get("log_mode"));
+
+        adapter.disconnect().await?;
+        info!("Test completed: test_oracle_get_database_metadata");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_oracle_get_table_metadata() -> Result<()> {
+        info!("Starting test: test_oracle_get_table_metadata");
+
+        let mut adapter = setup().await?;
+
+        // Create test table
+        let table_name = "test_oracle_metadata_table";
+        info!("Creating test table");
+        adapter
+            .execute_query(&format!(
+                "CREATE TABLE {} (id NUMBER PRIMARY KEY, name VARCHAR2(100))",
+                table_name
+            ))
+            .await?;
+
+        adapter
+            .execute_query(&format!(
+                "INSERT INTO {} (id, name) VALUES (1, 'test1')",
+                table_name
+            ))
+            .await?;
+        adapter
+            .execute_query(&format!(
+                "INSERT INTO {} (id, name) VALUES (2, 'test2')",
+                table_name
+            ))
+            .await?;
+
+        // Get table metadata
+        info!("Testing get_table_metadata");
+        let table_meta = adapter.get_table_metadata(table_name, None).await?;
+
+        assert_eq!(table_meta.name, table_name);
+        debug!("Row count: {:?}", table_meta.row_count);
+
+        // Cleanup
+        adapter
+            .execute_query(&format!("DROP TABLE {}", table_name))
+            .await?;
+
+        adapter.disconnect().await?;
+        info!("Test completed: test_oracle_get_table_metadata");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_oracle_get_indexes() -> Result<()> {
+        info!("Starting test: test_oracle_get_indexes");
+
+        let mut adapter = setup().await?;
+
+        // Create test table with indexes
+        let table_name = "test_oracle_indexes_table";
+        info!("Creating test table with indexes");
+        adapter
+            .execute_query(&format!(
+                "CREATE TABLE {} (
+                    id NUMBER PRIMARY KEY,
+                    email VARCHAR2(100) UNIQUE,
+                    name VARCHAR2(100)
+                )",
+                table_name
+            ))
+            .await?;
+
+        adapter
+            .execute_query(&format!(
+                "CREATE INDEX idx_name ON {}(name)",
+                table_name
+            ))
+            .await?;
+
+        // Get indexes
+        info!("Testing get_indexes");
+        let indexes = adapter.get_indexes(table_name, None).await?;
+
+        assert!(indexes.len() >= 2); // PRIMARY KEY, UNIQUE
+
+        debug!("Found {} indexes", indexes.len());
+        for idx in &indexes {
+            debug!(
+                "Index: {} (columns: {:?}, unique: {}, primary: {})",
+                idx.name, idx.columns, idx.is_unique, idx.is_primary
+            );
+        }
+
+        // Cleanup
+        adapter
+            .execute_query(&format!("DROP TABLE {}", table_name))
+            .await?;
+
+        adapter.disconnect().await?;
+        info!("Test completed: test_oracle_get_indexes");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_oracle_get_foreign_keys() -> Result<()> {
+        info!("Starting test: test_oracle_get_foreign_keys");
+
+        let mut adapter = setup().await?;
+
+        // Create parent and child tables with FK
+        info!("Creating tables with foreign key");
+        adapter
+            .execute_query(
+                "CREATE TABLE test_oracle_fk_parent (
+                    id NUMBER PRIMARY KEY,
+                    name VARCHAR2(100)
+                )",
+            )
+            .await?;
+
+        adapter
+            .execute_query(
+                "CREATE TABLE test_oracle_fk_child (
+                    id NUMBER PRIMARY KEY,
+                    parent_id NUMBER,
+                    data VARCHAR2(100),
+                    FOREIGN KEY (parent_id) REFERENCES test_oracle_fk_parent(id) ON DELETE CASCADE
+                )",
+            )
+            .await?;
+
+        // Get foreign keys
+        info!("Testing get_foreign_keys");
+        let fks = adapter
+            .get_foreign_keys("test_oracle_fk_child", None)
+            .await?;
+
+        assert_eq!(fks.len(), 1);
+        let fk = &fks[0];
+        assert_eq!(fk.table_name, "test_oracle_fk_child");
+        assert_eq!(fk.referenced_table, "test_oracle_fk_parent");
+        assert!(fk.columns.contains(&"PARENT_ID".to_string()));
+        debug!("Foreign key: {} -> {}", fk.name, fk.referenced_table);
+
+        // Cleanup
+        adapter
+            .execute_query("DROP TABLE test_oracle_fk_child")
+            .await?;
+        adapter
+            .execute_query("DROP TABLE test_oracle_fk_parent")
+            .await?;
+
+        adapter.disconnect().await?;
+        info!("Test completed: test_oracle_get_foreign_keys");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_oracle_get_views() -> Result<()> {
+        info!("Starting test: test_oracle_get_views");
+
+        let mut adapter = setup().await?;
+
+        // Create test table and view
+        info!("Creating test table and view");
+        adapter
+            .execute_query(
+                "CREATE TABLE test_oracle_view_source (
+                    id NUMBER PRIMARY KEY,
+                    value NUMBER
+                )",
+            )
+            .await?;
+
+        adapter
+            .execute_query(
+                "CREATE VIEW test_oracle_my_view AS
+                SELECT id, value * 2 AS doubled
+                FROM test_oracle_view_source",
+            )
+            .await?;
+
+        // Get views
+        info!("Testing get_views");
+        let views = adapter.get_views(None).await?;
+
+        let test_view = views.iter().find(|v| v.name == "test_oracle_my_view");
+        assert!(test_view.is_some());
+        debug!("Found {} views", views.len());
+
+        // Get view definition
+        info!("Testing get_view_definition");
+        let definition = adapter
+            .get_view_definition("test_oracle_my_view", None)
+            .await?;
+        assert!(definition.is_some());
+        debug!("View definition retrieved");
+
+        // Cleanup
+        adapter
+            .execute_query("DROP VIEW test_oracle_my_view")
+            .await?;
+        adapter
+            .execute_query("DROP TABLE test_oracle_view_source")
+            .await?;
+
+        adapter.disconnect().await?;
+        info!("Test completed: test_oracle_get_views");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_oracle_list_stored_procedures() -> Result<()> {
+        info!("Starting test: test_oracle_list_stored_procedures");
+
+        let mut adapter = setup().await?;
+
+        // Create test stored procedure
+        info!("Creating test stored procedure");
+        adapter
+            .execute_query(
+                "CREATE OR REPLACE PROCEDURE test_add_numbers (
+                    a IN NUMBER,
+                    b IN NUMBER,
+                    result OUT NUMBER
+                ) AS
+                BEGIN
+                    result := a + b;
+                END test_add_numbers;",
+            )
+            .await?;
+
+        // List procedures
+        info!("Testing list_stored_procedures");
+        let procedures = adapter.list_stored_procedures(None).await?;
+
+        let test_proc = procedures.iter().find(|p| p.name == "test_add_numbers");
+        assert!(test_proc.is_some());
+        let proc = test_proc.unwrap();
+        assert_eq!(proc.language, Some("PL/SQL".to_string()));
+        debug!("Found procedure: {} (language: {:?})", proc.name, proc.language);
+
+        // Cleanup
+        adapter
+            .execute_query("DROP PROCEDURE test_add_numbers")
+            .await?;
+
+        adapter.disconnect().await?;
+        info!("Test completed: test_oracle_list_stored_procedures");
         Ok(())
     }
 

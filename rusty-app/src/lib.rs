@@ -2,6 +2,7 @@
 
 pub mod components;
 pub mod connection_form;
+pub mod container;
 pub mod left_panel;
 pub mod main_panel;
 pub mod menu_bar;

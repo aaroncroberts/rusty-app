@@ -1,6 +1,7 @@
 use crate::adapter::{
-    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseType, QueryResult, QueryValue,
-    TableInfo,
+    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseMetadata, DatabaseType,
+    ForeignKeyInfo, IndexInfo, ProcedureInfo, QueryResult, QueryValue, ServerInfo, TableInfo,
+    TableMetadata, ViewInfo,
 };
 use crate::error::{DataError, Result};
 use crate::pool::Pool;
@@ -352,6 +353,415 @@ impl DatabaseAdapter for OracleAdapter {
 
     fn database_type(&self) -> DatabaseType {
         DatabaseType::Oracle
+    }
+
+    // ===== Server & Database Introspection Methods =====
+
+    #[instrument(skip(self))]
+    async fn get_server_info(&self) -> Result<ServerInfo> {
+        info!("Retrieving Oracle server info");
+
+        let pool = self.pool.as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
+            .clone();
+
+        let query = "SELECT * FROM v$version WHERE banner LIKE 'Oracle%'".to_string();
+
+        let result = tokio::task::spawn_blocking(move || {
+            Self::execute_blocking(pool, query)
+        })
+        .await
+        .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
+
+        let mut version = String::from("unknown");
+        let mut extra_info = std::collections::HashMap::new();
+
+        if !result.rows.is_empty() {
+            if let Some(QueryValue::Text(banner)) = result.rows[0].first() {
+                version = banner.clone();
+                extra_info.insert("banner".to_string(), banner.clone());
+            }
+        }
+
+        Ok(ServerInfo {
+            version,
+            server_type: "Oracle Database".to_string(),
+            extra_info,
+        })
+    }
+
+    #[instrument(skip(self), fields(database = %database_name))]
+    async fn get_database_metadata(&self, database_name: &str) -> Result<DatabaseMetadata> {
+        info!("Retrieving metadata for database: {}", database_name);
+
+        let pool = self.pool.as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
+            .clone();
+
+        // Oracle uses tablespace concept; get overall database info
+        let query = format!(
+            "SELECT
+                name,
+                created,
+                log_mode
+            FROM v$database"
+        );
+
+        let result = tokio::task::spawn_blocking(move || {
+            Self::execute_blocking(pool, query)
+        })
+        .await
+        .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
+
+        let mut created_at = None;
+        let mut extra_info = std::collections::HashMap::new();
+
+        if !result.rows.is_empty() {
+            if let Some(QueryValue::Text(log_mode)) = result.rows[0].get(2) {
+                extra_info.insert("log_mode".to_string(), log_mode.clone());
+            }
+            if let Some(QueryValue::Text(created)) = result.rows[0].get(1) {
+                created_at = Some(created.clone());
+            }
+        }
+
+        Ok(DatabaseMetadata {
+            name: database_name.to_string(),
+            size_bytes: None, // Would require tablespace size queries
+            owner: None,
+            encoding: Some("UTF8".to_string()), // Oracle typically uses UTF8
+            created_at,
+            extra_info,
+        })
+    }
+
+    #[instrument(skip(self), fields(table = %table_name))]
+    async fn get_table_metadata(&self, table_name: &str, schema: Option<&str>) -> Result<TableMetadata> {
+        info!("Retrieving metadata for table: {}", table_name);
+
+        let owner = schema.unwrap_or("USER");
+        let pool = self.pool.as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
+            .clone();
+
+        let query = format!(
+            "SELECT
+                table_name,
+                tablespace_name,
+                num_rows
+            FROM all_tables
+            WHERE UPPER(table_name) = UPPER('{}')
+            AND (owner = UPPER('{}') OR owner = USER)",
+            table_name, owner
+        );
+
+        let result = tokio::task::spawn_blocking(move || {
+            Self::execute_blocking(pool, query)
+        })
+        .await
+        .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
+
+        let mut row_count = None;
+
+        if !result.rows.is_empty() {
+            if let Some(QueryValue::Int(num_rows)) = result.rows[0].get(2) {
+                row_count = Some(*num_rows);
+            } else if let Some(QueryValue::Text(num_rows_str)) = result.rows[0].get(2) {
+                row_count = num_rows_str.parse::<i64>().ok();
+            }
+        }
+
+        Ok(TableMetadata {
+            name: table_name.to_string(),
+            schema: Some(owner.to_string()),
+            size_bytes: None, // Would require segment size queries
+            row_count,
+            created_at: None,
+            table_type: Some("TABLE".to_string()),
+        })
+    }
+
+    #[instrument(skip(self), fields(table = %table_name))]
+    async fn get_indexes(&self, table_name: &str, schema: Option<&str>) -> Result<Vec<IndexInfo>> {
+        info!("Retrieving indexes for table: {}", table_name);
+
+        let owner = schema.unwrap_or("USER");
+        let pool = self.pool.as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
+            .clone();
+
+        let query = format!(
+            "SELECT
+                i.index_name,
+                i.uniqueness,
+                LISTAGG(ic.column_name, ',') WITHIN GROUP (ORDER BY ic.column_position) as columns,
+                i.index_type
+            FROM all_indexes i
+            JOIN all_ind_columns ic ON i.index_name = ic.index_name AND i.owner = ic.index_owner
+            WHERE UPPER(i.table_name) = UPPER('{}')
+            AND (i.owner = UPPER('{}') OR i.owner = USER)
+            GROUP BY i.index_name, i.uniqueness, i.index_type",
+            table_name, owner
+        );
+
+        let result = tokio::task::spawn_blocking(move || {
+            Self::execute_blocking(pool, query)
+        })
+        .await
+        .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
+
+        let mut indexes = Vec::new();
+
+        for row in result.rows {
+            let index_name = match row.first() {
+                Some(QueryValue::Text(s)) => s.clone(),
+                _ => continue,
+            };
+
+            let is_unique = match row.get(1) {
+                Some(QueryValue::Text(s)) => s == "UNIQUE",
+                _ => false,
+            };
+
+            let columns_str = match row.get(2) {
+                Some(QueryValue::Text(s)) => s.clone(),
+                _ => String::new(),
+            };
+            let columns: Vec<String> = columns_str.split(',').map(|s| s.trim().to_string()).collect();
+
+            let index_type = match row.get(3) {
+                Some(QueryValue::Text(s)) => Some(s.clone()),
+                _ => None,
+            };
+
+            // Oracle primary keys are typically named like SYS_C00xxxxx or have PK in name
+            let is_primary = index_name.contains("PK") || index_name.starts_with("SYS_C");
+
+            indexes.push(IndexInfo {
+                name: index_name,
+                table_name: table_name.to_string(),
+                schema: Some(owner.to_string()),
+                columns,
+                is_unique,
+                is_primary,
+                index_type,
+            });
+        }
+
+        Ok(indexes)
+    }
+
+    #[instrument(skip(self), fields(table = %table_name))]
+    async fn get_foreign_keys(&self, table_name: &str, schema: Option<&str>) -> Result<Vec<ForeignKeyInfo>> {
+        info!("Retrieving foreign keys for table: {}", table_name);
+
+        let owner = schema.unwrap_or("USER");
+        let pool = self.pool.as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
+            .clone();
+
+        let query = format!(
+            "SELECT
+                c.constraint_name,
+                c.table_name,
+                c.owner,
+                LISTAGG(cc.column_name, ',') WITHIN GROUP (ORDER BY cc.position) as columns,
+                c.r_constraint_name,
+                rc.table_name as referenced_table,
+                rc.owner as referenced_owner,
+                c.delete_rule
+            FROM all_constraints c
+            JOIN all_cons_columns cc ON c.constraint_name = cc.constraint_name AND c.owner = cc.owner
+            JOIN all_constraints rc ON c.r_constraint_name = rc.constraint_name
+            WHERE c.constraint_type = 'R'
+            AND UPPER(c.table_name) = UPPER('{}')
+            AND (c.owner = UPPER('{}') OR c.owner = USER)
+            GROUP BY c.constraint_name, c.table_name, c.owner, c.r_constraint_name, rc.table_name, rc.owner, c.delete_rule",
+            table_name, owner
+        );
+
+        let result = tokio::task::spawn_blocking(move || {
+            Self::execute_blocking(pool.clone(), query.clone())
+        })
+        .await
+        .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
+
+        let mut fks = Vec::new();
+
+        for row in result.rows {
+            let fk_name = match row.first() {
+                Some(QueryValue::Text(s)) => s.clone(),
+                _ => continue,
+            };
+
+            let columns_str = match row.get(3) {
+                Some(QueryValue::Text(s)) => s.clone(),
+                _ => String::new(),
+            };
+            let columns: Vec<String> = columns_str.split(',').map(|s| s.trim().to_string()).collect();
+
+            let referenced_table = match row.get(5) {
+                Some(QueryValue::Text(s)) => s.clone(),
+                _ => String::new(),
+            };
+
+            let referenced_schema = match row.get(6) {
+                Some(QueryValue::Text(s)) => Some(s.clone()),
+                _ => None,
+            };
+
+            let on_delete = match row.get(7) {
+                Some(QueryValue::Text(s)) => Some(s.clone()),
+                _ => None,
+            };
+
+            // Oracle doesn't easily expose referenced columns without additional query
+            // For simplicity, use same column names as assumption
+            let referenced_columns = columns.clone();
+
+            fks.push(ForeignKeyInfo {
+                name: fk_name,
+                table_name: table_name.to_string(),
+                schema: Some(owner.to_string()),
+                columns,
+                referenced_table,
+                referenced_schema,
+                referenced_columns,
+                on_delete,
+                on_update: None, // Oracle doesn't have ON UPDATE CASCADE
+            });
+        }
+
+        Ok(fks)
+    }
+
+    #[instrument(skip(self))]
+    async fn get_views(&self, schema: Option<&str>) -> Result<Vec<ViewInfo>> {
+        info!("Retrieving views");
+
+        let owner = schema.unwrap_or("USER");
+        let pool = self.pool.as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
+            .clone();
+
+        let query = format!(
+            "SELECT view_name, owner
+            FROM all_views
+            WHERE owner = UPPER('{}') OR owner = USER",
+            owner
+        );
+
+        let result = tokio::task::spawn_blocking(move || {
+            Self::execute_blocking(pool, query)
+        })
+        .await
+        .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
+
+        let mut views = Vec::new();
+
+        for row in result.rows {
+            let name = match row.first() {
+                Some(QueryValue::Text(s)) => s.clone(),
+                _ => continue,
+            };
+
+            let schema = match row.get(1) {
+                Some(QueryValue::Text(s)) => Some(s.clone()),
+                _ => None,
+            };
+
+            views.push(ViewInfo {
+                name,
+                schema,
+                definition: None, // Retrieved separately
+            });
+        }
+
+        Ok(views)
+    }
+
+    #[instrument(skip(self), fields(view = %view_name))]
+    async fn get_view_definition(&self, view_name: &str, schema: Option<&str>) -> Result<Option<String>> {
+        info!("Retrieving view definition for: {}", view_name);
+
+        let owner = schema.unwrap_or("USER");
+        let pool = self.pool.as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
+            .clone();
+
+        let query = format!(
+            "SELECT text
+            FROM all_views
+            WHERE UPPER(view_name) = UPPER('{}')
+            AND (owner = UPPER('{}') OR owner = USER)",
+            view_name, owner
+        );
+
+        let result = tokio::task::spawn_blocking(move || {
+            Self::execute_blocking(pool, query)
+        })
+        .await
+        .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
+
+        if !result.rows.is_empty() {
+            if let Some(QueryValue::Text(text)) = result.rows[0].first() {
+                return Ok(Some(text.clone()));
+            }
+        }
+
+        Ok(None)
+    }
+
+    #[instrument(skip(self))]
+    async fn list_stored_procedures(&self, schema: Option<&str>) -> Result<Vec<ProcedureInfo>> {
+        info!("Listing stored procedures");
+
+        let owner = schema.unwrap_or("USER");
+        let pool = self.pool.as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
+            .clone();
+
+        let query = format!(
+            "SELECT object_name, owner, object_type
+            FROM all_procedures
+            WHERE (owner = UPPER('{}') OR owner = USER)
+            AND object_type IN ('PROCEDURE', 'FUNCTION')",
+            owner
+        );
+
+        let result = tokio::task::spawn_blocking(move || {
+            Self::execute_blocking(pool, query)
+        })
+        .await
+        .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
+
+        let mut procedures = Vec::new();
+
+        for row in result.rows {
+            let name = match row.first() {
+                Some(QueryValue::Text(s)) => s.clone(),
+                _ => continue,
+            };
+
+            let schema = match row.get(1) {
+                Some(QueryValue::Text(s)) => Some(s.clone()),
+                _ => None,
+            };
+
+            let return_type = match row.get(2) {
+                Some(QueryValue::Text(s)) if s == "FUNCTION" => Some("FUNCTION".to_string()),
+                _ => None,
+            };
+
+            procedures.push(ProcedureInfo {
+                name,
+                schema,
+                return_type,
+                language: Some("PL/SQL".to_string()),
+            });
+        }
+
+        Ok(procedures)
     }
 }
 
