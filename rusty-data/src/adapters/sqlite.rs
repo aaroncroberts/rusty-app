@@ -68,9 +68,16 @@ impl SqliteAdapter {
         if config.database == ":memory:" {
             "sqlite::memory:".to_string()
         } else {
-            // Use file: scheme with mode=rwc to allow read/write and create
-            // This ensures the database file is created if it doesn't exist
-            format!("sqlite:{}?mode=rwc", config.database)
+            // Use proper SQLite URI format
+            // Absolute path: sqlite:///path (three slashes)
+            // Relative path: sqlite://path (two slashes)
+            if config.database.starts_with('/') {
+                // Absolute path - use three slashes
+                format!("sqlite://{}", config.database)
+            } else {
+                // Relative path - use two slashes
+                format!("sqlite://{}", config.database)
+            }
         }
     }
 
@@ -1092,7 +1099,8 @@ mod tests {
 
     #[test]
     fn test_validate_database_path_too_long() {
-        let long_path = format!("/tmp/{}.db", "a".repeat(1000));
+        // Create a path longer than 4096 characters (the limit)
+        let long_path = format!("/tmp/{}.db", "a".repeat(5000));
         let result = SqliteAdapter::validate_database_path(&long_path);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), DataError::Config(_)));

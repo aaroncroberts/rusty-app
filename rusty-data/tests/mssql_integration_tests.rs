@@ -7,7 +7,8 @@
 //
 // Prerequisites:
 // - SQL Server instance running on localhost:1433
-// - SA user with password: Test_Password123!
+// - SA user with password: TestPassword123
+// - Azure SQL Edge container (supports ARM64 and x86-64)
 //
 // To run: cargo test --test mssql_integration_tests --features mssql -- --ignored --nocapture
 
@@ -20,7 +21,7 @@ use tracing::{debug, info};
 // MSSQL test database - shared across all tests
 const TEST_DB_NAME: &str = "rusty_test_mssql";
 const TEST_USER: &str = "sa";
-const TEST_PASSWORD: &str = "Test_Password123!";
+const TEST_PASSWORD: &str = "TestPassword123";
 
 // One-time database creation
 static INIT: AtomicBool = AtomicBool::new(false);
