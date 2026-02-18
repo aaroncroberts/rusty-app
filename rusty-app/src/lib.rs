@@ -6,6 +6,7 @@ pub mod container;
 pub mod left_panel;
 pub mod main_panel;
 pub mod menu_bar;
+pub mod settings;
 pub mod status_bar;
 pub mod theme;
 pub mod views;
