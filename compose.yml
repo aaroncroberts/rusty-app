@@ -45,18 +45,15 @@ services:
       - mysql_data:/var/lib/mysql
 
   # Microsoft SQL Server - Port 1433
-  # ⚠️ WARNING: SQL Server does NOT support ARM64 (Apple Silicon)
-  # - Works on: x86-64 Linux, x86-64 macOS (Intel), Windows x86-64
-  # - Crashes on: Apple Silicon (M1/M2/M3/M4), ARM Linux
-  # - See rusty-data/MSSQL_ARM_LIMITATION.md for details
-  # - For ARM users: Use PostgreSQL/MySQL for local testing, CI/CD for MSSQL tests
+  # Using Azure SQL Edge which supports both ARM64 and x86-64
   mssql:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    image: mcr.microsoft.com/azure-sql-edge:latest
+    platform: linux/arm64  # Use ARM64 version (works natively on Apple Silicon, via emulation on x86-64)
     container_name: icitadel-dev-mssql
     environment:
       ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: "TestPassword123"  # Strong password (min 8 chars, uppercase, lowercase, digits)
-      MSSQL_PID: "Developer"  # Developer edition (free)
+      MSSQL_SA_PASSWORD: "TestPassword123"
+      MSSQL_PID: "Developer"
     ports:
       - "1433:1433"
     healthcheck:
