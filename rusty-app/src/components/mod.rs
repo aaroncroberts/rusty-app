@@ -5,18 +5,20 @@
 //! - `ComponentAction`: Unified action type for all components
 //! - `Component`: Trait for UI components
 
-use iced::Element;
 use crate::theme::ThemeColors;
+use iced::Element;
 
 pub mod connection_form;
 pub mod editor;
 pub mod properties;
+pub mod results_view;
 pub mod server_list;
 pub mod table_list;
 
 pub use connection_form::{ConnectionFormComponent, ConnectionFormData};
 pub use editor::{EditorComponent, QueryTab};
 pub use properties::{PropertiesComponent, Property};
+pub use results_view::ResultsViewComponent;
 pub use server_list::ServerListComponent;
 pub use table_list::{TableListComponent, TableMetadata};
 
@@ -28,6 +30,7 @@ pub enum ComponentId {
     Properties,
     Editor,
     ConnectionForm,
+    ResultsView,
 }
 
 impl ComponentId {
@@ -39,6 +42,7 @@ impl ComponentId {
             ComponentId::Properties,
             ComponentId::Editor,
             ComponentId::ConnectionForm,
+            ComponentId::ResultsView,
         ]
     }
 
@@ -50,6 +54,7 @@ impl ComponentId {
             ComponentId::Properties => "Properties",
             ComponentId::Editor => "Query Editor",
             ComponentId::ConnectionForm => "Connection Manager",
+            ComponentId::ResultsView => "Results",
         }
     }
 }
@@ -62,6 +67,7 @@ pub enum ComponentAction {
     Properties(PropertiesAction),
     Editor(EditorAction),
     ConnectionForm(ConnectionFormAction),
+    ResultsView(ResultsViewAction),
 }
 
 /// Actions for the server list component
@@ -109,6 +115,13 @@ pub enum ConnectionFormAction {
     TestConnection,
     Save,
     Cancel,
+}
+
+/// Actions for the results view component
+#[derive(Debug, Clone)]
+pub enum ResultsViewAction {
+    // ResultsView is read-only display, no actions needed yet
+    // Future: pagination, sorting, filtering actions
 }
 
 /// Trait for UI components that can be rendered dynamically
