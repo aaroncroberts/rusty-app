@@ -14,7 +14,7 @@ pub struct ThemeColors {
     pub background_secondary: Color,
     /// Border color (#353b45)
     pub border: Color,
-    /// Accent color for highlights and selections (#5294e2)
+    /// Accent color for highlights and selections (#5fb3a6)
     pub accent: Color,
     /// Primary text color (#f5f6fa)
     pub text: Color,
@@ -48,9 +48,9 @@ impl ThemeColors {
                 0x45 as f32 / 255.0,
             ),
             accent: Color::from_rgb(
-                0x52 as f32 / 255.0,
-                0x94 as f32 / 255.0,
-                0xe2 as f32 / 255.0,
+                0x5f as f32 / 255.0,
+                0xb3 as f32 / 255.0,
+                0xa6 as f32 / 255.0,
             ),
             text: Color::from_rgb(
                 0xf5 as f32 / 255.0,
@@ -138,7 +138,10 @@ mod tests {
         let default_theme = ThemeColors::default();
         let dark_theme = ThemeColors::dark();
 
-        assert_eq!(default_theme, dark_theme, "Default theme should be dark theme");
+        assert_eq!(
+            default_theme, dark_theme,
+            "Default theme should be dark theme"
+        );
     }
 
     #[test]
@@ -159,9 +162,18 @@ mod tests {
         ];
 
         for color in colors.iter() {
-            assert!(color.r >= 0.0 && color.r <= 1.0, "Red component out of range");
-            assert!(color.g >= 0.0 && color.g <= 1.0, "Green component out of range");
-            assert!(color.b >= 0.0 && color.b <= 1.0, "Blue component out of range");
+            assert!(
+                color.r >= 0.0 && color.r <= 1.0,
+                "Red component out of range"
+            );
+            assert!(
+                color.g >= 0.0 && color.g <= 1.0,
+                "Green component out of range"
+            );
+            assert!(
+                color.b >= 0.0 && color.b <= 1.0,
+                "Blue component out of range"
+            );
         }
     }
 }
