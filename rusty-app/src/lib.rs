@@ -1,6 +1,7 @@
 //! rusty-app library - UI components and theme for the Database IDE
 
 pub mod adapter_selector;
+pub mod button_styles;
 pub mod components;
 pub mod connection_form;
 pub mod connection_list;
