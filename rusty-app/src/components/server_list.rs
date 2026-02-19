@@ -75,8 +75,8 @@ impl Component for ServerListComponent {
 
     fn view(&self, theme: ThemeColors) -> Element<ComponentAction> {
         // New connection button
-        let new_conn_btn = button(text("+").size(16))
-            .padding([4, 8])
+        let new_conn_btn = button(text("+ New Connection").size(12))
+            .padding([6, 12])
             .style(move |_theme, status| button::Style {
                 background: Some(theme.accent.into()),
                 text_color: theme.text,
@@ -126,21 +126,17 @@ impl Component for ServerListComponent {
                             border: Border::default(),
                             ..Default::default()
                         })
-                        .on_press(ComponentAction::ServerList(
-                            ServerListAction::SelectServer(conn_id),
-                        )),
+                        .on_press(ComponentAction::ServerList(ServerListAction::SelectServer(
+                            conn_id,
+                        ))),
                 );
             }
         }
 
-        container(
-            scrollable(content_col.padding(15))
-                .width(Fill)
-                .height(Fill),
-        )
-        .width(Fill)
-        .height(Fill)
-        .into()
+        container(scrollable(content_col.padding(15)).width(Fill).height(Fill))
+            .width(Fill)
+            .height(Fill)
+            .into()
     }
 }
 

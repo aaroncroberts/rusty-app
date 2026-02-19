@@ -127,19 +127,18 @@ impl MainPanel {
         // Map query editor messages to the parent message type
         let tab_id = self.active_tab_id;
         let mapped_content = if let Some(id) = tab_id {
-            self.tab_content(id, query_results, query_errors).map(move |msg| on_query_editor(id, msg))
+            self.tab_content(id, query_results, query_errors)
+                .map(move |msg| on_query_editor(id, msg))
         } else {
             // No active tab - show empty state
             container(
                 column![
-                    text("No tabs open")
-                        .size(16)
-                        .color(theme.text_secondary),
+                    text("No tabs open").size(16).color(theme.text_secondary),
                     text("Click + to create a new tab")
                         .size(12)
                         .color(theme.text_secondary),
                 ]
-                .spacing(10)
+                .spacing(10),
             )
             .width(Fill)
             .height(Fill)
@@ -221,7 +220,7 @@ impl MainPanel {
                             ..Default::default()
                         }),
                 ]
-                .spacing(0)
+                .spacing(0),
             )
             .style(move |_theme| container::Style {
                 background: None,
@@ -237,7 +236,7 @@ impl MainPanel {
         }
 
         // New tab button (perfectly aligned height with tabs)
-        let new_tab_btn = button(text("+").size(12))
+        let new_tab_btn = button(text("+ New Tab").size(12))
             .on_press(on_new_tab)
             .padding([6, 12])
             .style(move |_theme, status| button::Style {
@@ -292,20 +291,16 @@ impl MainPanel {
             let result_view: Element<'a, crate::query_editor::QueryEditorMessage> =
                 self.result_grid.view(result_opt, error_opt);
 
-            container(
-                column![editor_view, result_view]
-                    .spacing(0)
-                    .height(Fill)
-            )
-            .width(Fill)
-            .height(Fill)
-            .into()
+            container(column![editor_view, result_view].spacing(0).height(Fill))
+                .width(Fill)
+                .height(Fill)
+                .into()
         } else {
             // Editor not found (shouldn't happen)
             container(
                 text("Error: Query editor not found")
                     .size(16)
-                    .color(theme.text_secondary)
+                    .color(theme.text_secondary),
             )
             .width(Fill)
             .height(Fill)

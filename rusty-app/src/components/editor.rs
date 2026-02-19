@@ -183,7 +183,11 @@ impl Component for EditorComponent {
                 }),
                 text_color: theme.text,
                 border: Border {
-                    color: if is_active { theme.accent } else { theme.border },
+                    color: if is_active {
+                        theme.accent
+                    } else {
+                        theme.border
+                    },
                     width: if is_active { 2.0 } else { 1.0 },
                     ..Default::default()
                 },
@@ -195,7 +199,7 @@ impl Component for EditorComponent {
         }
 
         // New tab button
-        let new_tab_btn = button(text("+").size(14))
+        let new_tab_btn = button(text("+ New Query").size(12))
             .padding([6, 12])
             .style(move |_theme, status| button::Style {
                 background: Some(theme.accent.into()),
@@ -216,7 +220,10 @@ impl Component for EditorComponent {
         tab_row = tab_row.push(new_tab_btn);
 
         // Query editor area - simplified for component pattern
-        let editor_text = if let Some(tab) = self.active_tab.and_then(|id| self.tabs.iter().find(|t| t.id == id)) {
+        let editor_text = if let Some(tab) = self
+            .active_tab
+            .and_then(|id| self.tabs.iter().find(|t| t.id == id))
+        {
             if tab.query.is_empty() {
                 format!("{}: (Enter SQL query...)", tab.title)
             } else {
@@ -226,12 +233,8 @@ impl Component for EditorComponent {
             "(No tabs open)".to_string()
         };
 
-        let editor_content = container(
-            text(editor_text)
-                .size(12)
-                .color(theme.text_secondary)
-        )
-        .padding(15);
+        let editor_content =
+            container(text(editor_text).size(12).color(theme.text_secondary)).padding(15);
 
         let content = column![
             container(scrollable(tab_row))
@@ -252,10 +255,7 @@ impl Component for EditorComponent {
         ]
         .spacing(0);
 
-        container(content)
-            .width(Fill)
-            .height(Fill)
-            .into()
+        container(content).width(Fill).height(Fill).into()
     }
 }
 
