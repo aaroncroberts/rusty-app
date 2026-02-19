@@ -1,5 +1,6 @@
 //! Server list component for displaying database connections
 
+use crate::button_styles;
 use crate::components::{Component, ComponentAction, ComponentId, ServerListAction};
 use crate::theme::ThemeColors;
 use iced::widget::{button, column, container, horizontal_space, row, scrollable, text};
@@ -76,21 +77,8 @@ impl Component for ServerListComponent {
     fn view(&self, theme: ThemeColors) -> Element<ComponentAction> {
         // New connection button
         let new_conn_btn = button(text("+ New Connection").size(12))
-            .padding([6, 12])
-            .style(move |_theme, status| button::Style {
-                background: Some(theme.accent.into()),
-                text_color: theme.text,
-                border: Border {
-                    color: if matches!(status, button::Status::Hovered) {
-                        theme.text
-                    } else {
-                        theme.accent
-                    },
-                    width: 1.0,
-                    ..Default::default()
-                },
-                ..Default::default()
-            })
+            .padding([6, 10])
+            .style(button_styles::primary(theme))
             .on_press(ComponentAction::ServerList(ServerListAction::NewConnection));
 
         let mut content_col = column![

@@ -3,6 +3,7 @@
 //! Provides a dropdown interface for selecting which database adapter to use
 //! when creating a new connection.
 
+use crate::button_styles;
 use crate::theme::ThemeColors;
 use iced::widget::{button, column, container, pick_list, row, text};
 use iced::{Border, Element, Fill};
@@ -65,9 +66,7 @@ impl AdapterSelector {
     ) -> Element<'a, Message> {
         let theme = self.theme;
 
-        let title = text("Select Database Adapter")
-            .size(20)
-            .color(theme.text);
+        let title = text("Select Database Adapter").size(20).color(theme.text);
 
         let description = text("Choose the type of database you want to connect to:")
             .size(14)
@@ -97,8 +96,10 @@ impl AdapterSelector {
             handle_color: theme.text_secondary,
             background: theme.background_secondary.into(),
             border: Border {
-                color: if matches!(status, pick_list::Status::Active | pick_list::Status::Hovered)
-                {
+                color: if matches!(
+                    status,
+                    pick_list::Status::Active | pick_list::Status::Hovered
+                ) {
                     theme.accent
                 } else {
                     theme.border
@@ -109,9 +110,7 @@ impl AdapterSelector {
         });
 
         let picker_row = row![
-            text("Database Type:")
-                .size(14)
-                .color(theme.text),
+            text("Database Type:").size(14).color(theme.text),
             adapter_picker,
         ]
         .spacing(15)
@@ -121,55 +120,20 @@ impl AdapterSelector {
         let can_continue = selected_adapter.is_some();
         let continue_button = if can_continue {
             button(text("Continue").size(14))
-                .padding([8, 16])
+                .padding([8, 14])
                 .on_press(on_message(AdapterSelectorMessage::Continue))
-                .style(move |_theme, status| button::Style {
-                    background: Some(theme.accent.into()),
-                    text_color: theme.text,
-                    border: Border {
-                        color: if matches!(status, button::Status::Hovered) {
-                            theme.text
-                        } else {
-                            theme.accent
-                        },
-                        width: 1.0,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                })
+                .style(button_styles::primary(theme))
         } else {
             button(text("Continue").size(14))
-                .padding([8, 16])
-                .style(move |_theme, _status| button::Style {
-                    background: Some(theme.background_secondary.into()),
-                    text_color: theme.text_secondary,
-                    border: Border {
-                        color: theme.border,
-                        width: 1.0,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                })
+                .padding([8, 14])
+                .style(button_styles::disabled(theme))
         };
 
         let buttons = row![
             button(text("Cancel").size(14))
-                .padding([8, 16])
+                .padding([8, 14])
                 .on_press(on_message(AdapterSelectorMessage::Cancel))
-                .style(move |_theme, status| button::Style {
-                    background: Some(theme.background_secondary.into()),
-                    text_color: theme.text,
-                    border: Border {
-                        color: if matches!(status, button::Status::Hovered) {
-                            theme.accent
-                        } else {
-                            theme.border
-                        },
-                        width: 1.0,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                }),
+                .style(button_styles::secondary(theme)),
             continue_button,
         ]
         .spacing(10);

@@ -3,6 +3,7 @@
 //! Provides a tabbed interface for managing multiple query sessions,
 //! displaying results, and interacting with the database.
 
+use crate::button_styles;
 use crate::query_editor::QueryEditor;
 use crate::result_grid::ResultGrid;
 use crate::theme::ThemeColors;
@@ -238,21 +239,8 @@ impl MainPanel {
         // New tab button (perfectly aligned height with tabs)
         let new_tab_btn = button(text("+ New Tab").size(12))
             .on_press(on_new_tab)
-            .padding([6, 12])
-            .style(move |_theme, status| button::Style {
-                background: Some(theme.background_secondary.into()),
-                text_color: if matches!(status, button::Status::Hovered) {
-                    theme.accent
-                } else {
-                    theme.text_secondary
-                },
-                border: Border {
-                    color: theme.border,
-                    width: 1.0,
-                    ..Default::default()
-                },
-                ..Default::default()
-            });
+            .padding([6, 10])
+            .style(button_styles::secondary(theme));
 
         tabs_row = tabs_row.push(new_tab_btn);
 
