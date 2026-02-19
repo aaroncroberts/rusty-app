@@ -4,7 +4,7 @@
 //! with a dark theme background and clickable menu items with dropdown submenus.
 
 use crate::theme::ThemeColors;
-use iced::widget::{button, column, container, row, text};
+use iced::widget::{button, column, container, row, text, Stack};
 use iced::{Border, Element, Fill, Length};
 
 /// Top-level menu items in the menu bar
@@ -29,7 +29,12 @@ impl MenuItem {
 
     /// Get all top-level menu items in order
     pub fn all() -> &'static [MenuItem] {
-        &[MenuItem::File, MenuItem::Edit, MenuItem::View, MenuItem::Tools]
+        &[
+            MenuItem::File,
+            MenuItem::Edit,
+            MenuItem::View,
+            MenuItem::Tools,
+        ]
     }
 }
 
@@ -208,16 +213,10 @@ impl MenuBar {
         let theme = self.theme;
 
         // Create menu item buttons
-        let menu_items = MenuItem::all()
-            .iter()
-            .fold(row![].spacing(0), |row, item| {
-                let is_open = open_menu == Some(*item);
+        let menu_items = MenuItem::all().iter().fold(row![].spacing(0), |row, item| {
+            let is_open = open_menu == Some(*item);
 
-                let item_button = button(
-                    text(item.name())
-                        .size(14)
-                        .color(theme.text)
-                )
+            let item_button = button(text(item.name()).size(14).color(theme.text))
                 .padding([6, 12])
                 .style(move |_theme, status| {
                     let background = if is_open {
@@ -238,8 +237,8 @@ impl MenuBar {
                 })
                 .on_press(on_menu_toggle(*item));
 
-                row.push(item_button)
-            });
+            row.push(item_button)
+        });
 
         let menu_bar = container(menu_items)
             .width(Fill)
@@ -256,10 +255,17 @@ impl MenuBar {
                 ..Default::default()
             });
 
-        // If a menu is open, render the submenu
+        // If a menu is open, render the submenu as an overlay using Stack
         if let Some(menu) = open_menu {
             let submenu = self.render_submenu(menu, view_registry, on_menu_action, on_close_menu);
-            column![menu_bar, submenu].spacing(0).into()
+
+            // Use Stack to overlay submenu without shifting layout
+            // The submenu is wrapped in a container with top padding to position below menu bar
+            let submenu_overlay = container(submenu)
+                .padding([40.0, 0.0]) // [vertical, horizontal] - 40px top padding for menu bar height
+                .width(Fill);
+
+            Stack::new().push(menu_bar).push(submenu_overlay).into()
         } else {
             menu_bar.into()
         }
@@ -276,15 +282,10 @@ impl MenuBar {
         let theme = self.theme;
 
         let submenu_items = match menu {
-            MenuItem::File => {
-                FileMenuItem::all()
-                    .iter()
-                    .fold(column![].spacing(0), |col, item| {
-                        let item_button = button(
-                            text(item.name())
-                                .size(13)
-                                .color(theme.text)
-                        )
+            MenuItem::File => FileMenuItem::all()
+                .iter()
+                .fold(column![].spacing(0), |col, item| {
+                    let item_button = button(text(item.name()).size(13).color(theme.text))
                         .width(Length::Fixed(200.0))
                         .padding([8, 16])
                         .style(move |_theme, status| button::Style {
@@ -299,18 +300,12 @@ impl MenuBar {
                         })
                         .on_press(on_action(MenuAction::File(*item)));
 
-                        col.push(item_button)
-                    })
-            }
-            MenuItem::Edit => {
-                EditMenuItem::all()
-                    .iter()
-                    .fold(column![].spacing(0), |col, item| {
-                        let item_button = button(
-                            text(item.name())
-                                .size(13)
-                                .color(theme.text)
-                        )
+                    col.push(item_button)
+                }),
+            MenuItem::Edit => EditMenuItem::all()
+                .iter()
+                .fold(column![].spacing(0), |col, item| {
+                    let item_button = button(text(item.name()).size(13).color(theme.text))
                         .width(Length::Fixed(200.0))
                         .padding([8, 16])
                         .style(move |_theme, status| button::Style {
@@ -325,9 +320,8 @@ impl MenuBar {
                         })
                         .on_press(on_action(MenuAction::Edit(*item)));
 
-                        col.push(item_button)
-                    })
-            }
+                    col.push(item_button)
+                }),
             MenuItem::View => {
                 ViewMenuItem::all()
                     .iter()
@@ -350,24 +344,20 @@ impl MenuBar {
                             item.name().to_string()
                         };
 
-                        let item_button = button(
-                            text(button_text)
-                                .size(13)
-                                .color(theme.text)
-                        )
-                        .width(Length::Fixed(200.0))
-                        .padding([8, 16])
-                        .style(move |_theme, status| button::Style {
-                            background: Some(if matches!(status, button::Status::Hovered) {
-                                theme.accent.into()
-                            } else {
-                                theme.background_secondary.into()
-                            }),
-                            text_color: theme.text,
-                            border: Border::default(),
-                            ..Default::default()
-                        })
-                        .on_press(on_action(MenuAction::View(*item)));
+                        let item_button = button(text(button_text).size(13).color(theme.text))
+                            .width(Length::Fixed(200.0))
+                            .padding([8, 16])
+                            .style(move |_theme, status| button::Style {
+                                background: Some(if matches!(status, button::Status::Hovered) {
+                                    theme.accent.into()
+                                } else {
+                                    theme.background_secondary.into()
+                                }),
+                                text_color: theme.text,
+                                border: Border::default(),
+                                ..Default::default()
+                            })
+                            .on_press(on_action(MenuAction::View(*item)));
 
                         col.push(item_button)
                     })
@@ -376,24 +366,20 @@ impl MenuBar {
                 ToolsMenuItem::all()
                     .iter()
                     .fold(column![].spacing(0), |col, item| {
-                        let item_button = button(
-                            text(item.name())
-                                .size(13)
-                                .color(theme.text)
-                        )
-                        .width(Length::Fixed(200.0))
-                        .padding([8, 16])
-                        .style(move |_theme, status| button::Style {
-                            background: Some(if matches!(status, button::Status::Hovered) {
-                                theme.accent.into()
-                            } else {
-                                theme.background_secondary.into()
-                            }),
-                            text_color: theme.text,
-                            border: Border::default(),
-                            ..Default::default()
-                        })
-                        .on_press(on_action(MenuAction::Tools(*item)));
+                        let item_button = button(text(item.name()).size(13).color(theme.text))
+                            .width(Length::Fixed(200.0))
+                            .padding([8, 16])
+                            .style(move |_theme, status| button::Style {
+                                background: Some(if matches!(status, button::Status::Hovered) {
+                                    theme.accent.into()
+                                } else {
+                                    theme.background_secondary.into()
+                                }),
+                                text_color: theme.text,
+                                border: Border::default(),
+                                ..Default::default()
+                            })
+                            .on_press(on_action(MenuAction::Tools(*item)));
 
                         col.push(item_button)
                     })
