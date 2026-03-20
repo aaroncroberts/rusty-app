@@ -1,71 +1,74 @@
 # rusty-app
 
-Universal database management tool written in Rust with GPUI.
+Universal database management tool written in Rust using [Iced](https://github.com/iced-rs/iced).
 
 ## Overview
 
-rusty-app is a cross-platform database tool that provides a modern interface for managing multiple database systems. Built with Rust and GPUI for performance and a native feel.
+rusty-app is a cross-platform desktop application for managing multiple database systems. It provides a modern, GPU-accelerated UI built with Iced and delegates all database access to the [arni](https://github.com/aaroncroberts/arni) library.
 
 ## Project Structure
 
 ```
 rusty-app/
 ├── rusty-app/          # UI application crate
-├── rusty-data/         # Data access library crate
-│   ├── src/
-│   │   ├── adapters/   # Database adapters (PostgreSQL, MySQL, SQLite)
-│   │   ├── adapter.rs  # DatabaseAdapter trait
-│   │   ├── config.rs   # Configuration management
-│   │   └── error.rs    # Error types
-│   └── podman-compose.yml  # Database testing containers
+│   └── src/
+│       ├── components/ # Reusable UI components (ServerList, TableList, Properties, ...)
+│       ├── container/  # Podman container management for local dev databases
+│       ├── settings/   # Configuration and user preferences
+│       ├── icons.rs    # Nerd Font (Codicons) icon helpers
+│       ├── theme.rs    # Color theme (dark mode)
+│       └── main.rs     # Application entry point
+├── rusty-logging/      # Structured logging configuration crate
+├── scripts/
+│   └── ci-check.sh     # Local CI verification script
 └── docs/               # Documentation
-    ├── README.md       # Documentation overview
-    └── database/       # Database-specific docs
-        └── testing.md  # Testing environment setup
 ```
 
 ## Supported Databases
 
-- **PostgreSQL** - Full-featured relational database
-- **MySQL/MariaDB** - Popular open-source RDBMS
-- **SQLite** - Embedded database for local files
-- **MongoDB** - Document-oriented NoSQL (planned)
-- **SQL Server** - Microsoft's enterprise database (planned)
+| Database | Status |
+|---|---|
+| PostgreSQL | ✅ Supported |
+| MySQL / MariaDB | ✅ Supported |
+| SQLite | ✅ Supported |
+| MongoDB | ✅ Supported |
+| SQL Server | ✅ Supported |
+| Oracle | ✅ Supported (requires Oracle Instant Client) |
 
 ## Getting Started
 
 ### Prerequisites
 
-- Rust (latest stable)
-- Xcode Command Line Tools (macOS)
-- Metal Toolchain (macOS, for GPUI GPU acceleration)
-- Podman (for database testing containers)
+- Rust stable toolchain
+- macOS: Xcode Command Line Tools
 
 ### Build and Run
 
 ```bash
-# Build the project
-cargo build
-
-# Run the application
+# Build and run (all adapters including Oracle)
 cargo run
 
-# Run tests
-cargo test
+# Build without Oracle (no Instant Client required)
+cargo run --no-default-features --features postgres,mysql,sqlite,mongodb,mssql
 
-# Run tests with database features
-cargo test --features all-databases
+# Run tests
+cargo test --features postgres,mysql,sqlite,mongodb,mssql
 ```
 
-### Database Testing Environment
+### Local CI Check
 
-See [Database Testing Documentation](docs/database/testing.md) for setting up local database containers using podman-compose.
+Mirrors the GitHub Actions CI pipeline exactly:
+
+```bash
+bash scripts/ci-check.sh
+```
+
+Runs: `cargo fmt --check` → `cargo check` → `cargo clippy -D warnings` → `cargo test`.
 
 ## Documentation
 
-- **[Documentation Index](docs/README.md)** - Complete documentation overview
-- **[Database Testing](docs/database/testing.md)** - Setup testing databases
-- **[CLAUDE.md](CLAUDE.md)** - Guidelines for AI assistants working with this codebase
+- **[CLAUDE.md](CLAUDE.md)** — Architecture notes and development guidelines
+- **[docs/](docs/)** — Additional documentation
 
 ## License
 
