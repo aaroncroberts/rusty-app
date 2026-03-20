@@ -1,0 +1,410 @@
+//! Left panel component for database object navigation
+//!
+//! Provides a resizable panel (120-400px) for viewing database objects
+//! like servers, tables, and properties.
+//!
+//! The panel dynamically generates tabs from enabled views in the ViewRegistry.
+
+use crate::components::{ComponentAction, ComponentId};
+use crate::icons;
+use crate::theme::ThemeColors;
+use crate::views::{RegionId, ViewRegistry};
+use iced::mouse::Interaction;
+use iced::widget::{
+    button, column, container, horizontal_space, mouse_area, row, scrollable, text,
+};
+use iced::{Alignment, Border, Element, Fill, Length};
+
+/// Minimum width for the left panel in pixels
+pub const MIN_WIDTH: f32 = 120.0;
+
+/// Maximum width for the left panel in pixels
+pub const MAX_WIDTH: f32 = 400.0;
+
+/// Default width for the left panel in pixels
+pub const DEFAULT_WIDTH: f32 = 200.0;
+
+/// Width of the resize handle in pixels
+const RESIZE_HANDLE_WIDTH: f32 = 4.0;
+
+/// Width of the collapsed icon rail in pixels
+pub const ICON_RAIL_WIDTH: f32 = 28.0;
+
+/// Available tabs in the left panel
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PanelTab {
+    #[default]
+    Servers,
+    Tables,
+    Properties,
+}
+
+impl PanelTab {
+    /// Get the display name for this tab
+    pub fn name(&self) -> &'static str {
+        match self {
+            PanelTab::Servers => "Servers",
+            PanelTab::Tables => "Tables",
+            PanelTab::Properties => "Properties",
+        }
+    }
+
+    /// Get all tabs in order
+    pub fn all() -> &'static [PanelTab] {
+        &[PanelTab::Servers, PanelTab::Tables, PanelTab::Properties]
+    }
+}
+
+/// Left panel component with resizable width
+#[derive(Debug, Clone)]
+pub struct LeftPanel {
+    theme: ThemeColors,
+}
+
+impl LeftPanel {
+    /// Create a new left panel with the given theme
+    pub fn new(theme: ThemeColors) -> Self {
+        Self { theme }
+    }
+
+    /// Render the left panel with current width and active component
+    ///
+    /// Dynamically generates tabs from enabled views in ViewRegistry.
+    /// When `collapsed` is true, renders a narrow icon rail with only the expand button.
+    #[allow(clippy::too_many_arguments)]
+    pub fn view<'a, Message: 'a + Clone + From<ComponentAction>>(
+        &'a self,
+        width: f32,
+        collapsed: bool,
+        active_component: Option<ComponentId>,
+        view_registry: &'a ViewRegistry,
+        on_tab_click: impl Fn(ComponentId) -> Message + 'a,
+        on_toggle: Message,
+        on_resize_start: Message,
+    ) -> Element<'a, Message> {
+        let theme = self.theme;
+
+        if collapsed {
+            // Collapsed: narrow rail with only the expand chevron
+            let toggle_btn = button(
+                text(icons::chevron_right())
+                    .font(icons::font())
+                    .size(14)
+                    .color(theme.text_secondary),
+            )
+            .padding([6, 6])
+            .style(move |_theme, _status| button::Style {
+                background: None,
+                text_color: theme.text_secondary,
+                border: Border::default(),
+                ..Default::default()
+            })
+            .on_press(on_toggle);
+
+            return container(column![toggle_btn].align_x(Alignment::Center))
+                .width(Length::Fixed(ICON_RAIL_WIDTH))
+                .height(Fill)
+                .style(move |_theme| container::Style {
+                    background: Some(theme.background.into()),
+                    border: Border {
+                        color: theme.border,
+                        width: 1.0,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                })
+                .into();
+        }
+
+        // Expanded: collapse button alongside the tab bar header
+        let collapse_btn = button(
+            text(icons::chevron_left())
+                .font(icons::font())
+                .size(14)
+                .color(theme.text_secondary),
+        )
+        .padding([4, 6])
+        .style(move |_theme, _status| button::Style {
+            background: None,
+            text_color: theme.text_secondary,
+            border: Border::default(),
+            ..Default::default()
+        })
+        .on_press(on_toggle);
+
+        let header_row = row![
+            self.tab_bar(active_component, view_registry, on_tab_click),
+            collapse_btn,
+        ]
+        .spacing(0)
+        .align_y(Alignment::Center);
+
+        // Panel content with tab bar header and tab content
+        let content = column![
+            header_row,
+            self.tab_content(active_component, view_registry)
+        ]
+        .spacing(0);
+
+        // Resize handle (vertical bar on right edge) - draggable
+        let resize_handle_visual = container(horizontal_space())
+            .width(RESIZE_HANDLE_WIDTH)
+            .height(Fill)
+            .style(move |_theme| container::Style {
+                background: Some(theme.border.into()),
+                ..Default::default()
+            });
+
+        // Make resize handle respond to mouse press with resize cursor
+        let resize_handle = mouse_area(resize_handle_visual)
+            .on_press(on_resize_start)
+            .interaction(Interaction::Pointer);
+
+        // Combine content and resize handle
+        let panel_with_handle = row![
+            container(content)
+                .width(Length::Fixed(width - RESIZE_HANDLE_WIDTH))
+                .height(Fill)
+                .style(move |_theme| container::Style {
+                    background: Some(theme.background.into()),
+                    border: Border {
+                        color: theme.border,
+                        width: 1.0,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            resize_handle,
+        ]
+        .spacing(0);
+
+        container(panel_with_handle)
+            .width(Length::Fixed(width))
+            .height(Fill)
+            .into()
+    }
+
+    /// Render the tab bar with clickable tabs (horizontally scrollable)
+    ///
+    /// Tabs are dynamically generated from enabled views in the ViewRegistry.
+    fn tab_bar<'a, Message: 'a + Clone>(
+        &'a self,
+        active_component: Option<ComponentId>,
+        view_registry: &'a ViewRegistry,
+        on_tab_click: impl Fn(ComponentId) -> Message + 'a,
+    ) -> Element<'a, Message> {
+        let theme = self.theme;
+
+        // Get enabled views for the left panel region
+        let enabled_views = view_registry.enabled_views(RegionId::LeftPanel);
+
+        // Create tab buttons from enabled views
+        let tabs = enabled_views.iter().fold(row![].spacing(0), |row, view| {
+            let component_id = view.component().id();
+            let is_active = active_component == Some(component_id);
+
+            let tab_button = button(text(view.component().title()).size(12).color(if is_active {
+                theme.text
+            } else {
+                theme.text_secondary
+            }))
+            .padding([8, 16])
+            .style(move |_theme, status| {
+                let background = if is_active {
+                    Some(theme.background.into())
+                } else {
+                    match status {
+                        button::Status::Hovered => Some(theme.background_secondary.into()),
+                        _ => Some(theme.background_secondary.into()),
+                    }
+                };
+
+                button::Style {
+                    background,
+                    text_color: if is_active {
+                        theme.text
+                    } else {
+                        theme.text_secondary
+                    },
+                    border: Border {
+                        color: theme.border,
+                        width: if is_active { 0.0 } else { 1.0 },
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }
+            })
+            .on_press(on_tab_click(component_id));
+
+            row.push(tab_button)
+        });
+
+        // Wrap tabs in horizontal scrollable to prevent wrapping
+        let scrollable_tabs = scrollable(tabs).direction(scrollable::Direction::Horizontal(
+            scrollable::Scrollbar::new().width(4).scroller_width(4),
+        ));
+
+        container(scrollable_tabs)
+            .width(Fill)
+            .style(move |_| container::Style {
+                background: Some(theme.background_secondary.into()),
+                border: Border {
+                    color: theme.border,
+                    width: 1.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .into()
+    }
+
+    /// Render content for the active component
+    ///
+    /// Delegates rendering to the active component's view() method.
+    fn tab_content<'a, Message: 'a + Clone + From<ComponentAction>>(
+        &'a self,
+        active_component: Option<ComponentId>,
+        view_registry: &'a ViewRegistry,
+    ) -> Element<'a, Message> {
+        let theme = self.theme;
+
+        // If no active component, show a message
+        let Some(component_id) = active_component else {
+            let content = column![text("(No tabs enabled)")
+                .size(11)
+                .color(theme.text_secondary),]
+            .spacing(10)
+            .padding(15);
+
+            return container(content).width(Fill).height(Fill).into();
+        };
+
+        // Get the active view from the registry
+        let Some(view) = view_registry.get_view(component_id) else {
+            let content = column![text("(Component not found)")
+                .size(11)
+                .color(theme.text_secondary),]
+            .spacing(10)
+            .padding(15);
+
+            return container(content).width(Fill).height(Fill).into();
+        };
+
+        // Render the component's view and map ComponentAction to Message
+        view.component().view(theme).map(Message::from)
+    }
+}
+
+/// Constrain width to valid range (MIN_WIDTH to MAX_WIDTH)
+pub fn constrain_width(width: f32) -> f32 {
+    width.clamp(MIN_WIDTH, MAX_WIDTH)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_left_panel_creation() {
+        let theme = ThemeColors::dark();
+        let panel = LeftPanel::new(theme);
+
+        assert_eq!(panel.theme, theme);
+    }
+
+    #[test]
+    fn test_left_panel_cloneable() {
+        let theme = ThemeColors::dark();
+        let panel = LeftPanel::new(theme);
+        let cloned = panel.clone();
+
+        assert_eq!(panel.theme, cloned.theme);
+    }
+
+    #[test]
+    fn test_left_panel_debug() {
+        let theme = ThemeColors::dark();
+        let panel = LeftPanel::new(theme);
+
+        let debug_str = format!("{:?}", panel);
+        assert!(debug_str.contains("LeftPanel"));
+    }
+
+    #[test]
+    fn test_constrain_width_min_boundary() {
+        assert_eq!(constrain_width(50.0), MIN_WIDTH);
+        assert_eq!(constrain_width(MIN_WIDTH - 10.0), MIN_WIDTH);
+        assert_eq!(constrain_width(MIN_WIDTH), MIN_WIDTH);
+    }
+
+    #[test]
+    fn test_constrain_width_max_boundary() {
+        assert_eq!(constrain_width(500.0), MAX_WIDTH);
+        assert_eq!(constrain_width(MAX_WIDTH + 10.0), MAX_WIDTH);
+        assert_eq!(constrain_width(MAX_WIDTH), MAX_WIDTH);
+    }
+
+    #[test]
+    fn test_constrain_width_within_range() {
+        assert_eq!(constrain_width(150.0), 150.0);
+        assert_eq!(constrain_width(200.0), 200.0);
+        assert_eq!(constrain_width(300.0), 300.0);
+    }
+
+    #[test]
+    fn test_default_width_is_valid() {
+        assert!(DEFAULT_WIDTH >= MIN_WIDTH);
+        assert!(DEFAULT_WIDTH <= MAX_WIDTH);
+        assert_eq!(constrain_width(DEFAULT_WIDTH), DEFAULT_WIDTH);
+    }
+
+    #[test]
+    fn test_width_constants() {
+        assert_eq!(MIN_WIDTH, 120.0);
+        assert_eq!(MAX_WIDTH, 400.0);
+        assert_eq!(DEFAULT_WIDTH, 200.0);
+    }
+
+    #[test]
+    fn test_panel_tab_names() {
+        assert_eq!(PanelTab::Servers.name(), "Servers");
+        assert_eq!(PanelTab::Tables.name(), "Tables");
+        assert_eq!(PanelTab::Properties.name(), "Properties");
+    }
+
+    #[test]
+    fn test_panel_tab_all() {
+        let all = PanelTab::all();
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[0], PanelTab::Servers);
+        assert_eq!(all[1], PanelTab::Tables);
+        assert_eq!(all[2], PanelTab::Properties);
+    }
+
+    #[test]
+    fn test_panel_tab_default() {
+        let default = PanelTab::default();
+        assert_eq!(default, PanelTab::Servers);
+    }
+
+    #[test]
+    fn test_panel_tab_equality() {
+        assert_eq!(PanelTab::Servers, PanelTab::Servers);
+        assert_ne!(PanelTab::Servers, PanelTab::Tables);
+        assert_ne!(PanelTab::Tables, PanelTab::Properties);
+    }
+
+    #[test]
+    fn test_panel_tab_debug() {
+        let tab = PanelTab::Servers;
+        let debug_str = format!("{:?}", tab);
+        assert!(debug_str.contains("Servers"));
+    }
+
+    #[test]
+    fn test_panel_tab_cloneable() {
+        let tab = PanelTab::Servers;
+        let cloned = tab;
+        assert_eq!(tab, cloned);
+    }
+}

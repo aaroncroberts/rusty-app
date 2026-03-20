@@ -1,0 +1,267 @@
+warning: field `password` is never read
+  --> rusty-app/src/container/converter.rs:10:5
+   |
+ 8 | struct ContainerCredentials {
+   |        -------------------- field in this struct
+ 9 |     username: &'static str,
+10 |     password: &'static str,
+   |     ^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> rusty-app/src/components/mod.rs:131:13
+    |
+131 |     fn view(&self, theme: ThemeColors) -> Element<ComponentAction>;
+    |             ^^^^^                         ^^^^^^^^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+    |             |
+    |             the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+    = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+    |
+131 |     fn view(&self, theme: ThemeColors) -> Element<'_, ComponentAction>;
+    |                                                   +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> rusty-app/src/components/connection_form.rs:222:13
+    |
+222 |     fn view(&self, theme: ThemeColors) -> Element<ComponentAction> {
+    |             ^^^^^                         ^^^^^^^^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+    |             |
+    |             the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+222 |     fn view(&self, theme: ThemeColors) -> Element<'_, ComponentAction> {
+    |                                                   +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> rusty-app/src/components/editor.rs:148:13
+    |
+148 |     fn view(&self, theme: ThemeColors) -> Element<ComponentAction> {
+    |             ^^^^^                         ^^^^^^^^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+    |             |
+    |             the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+148 |     fn view(&self, theme: ThemeColors) -> Element<'_, ComponentAction> {
+    |                                                   +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> rusty-app/src/components/properties.rs:97:13
+   |
+97 |     fn view(&self, theme: ThemeColors) -> Element<ComponentAction> {
+   |             ^^^^^                         ^^^^^^^^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+   |             |
+   |             the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+   |
+97 |     fn view(&self, theme: ThemeColors) -> Element<'_, ComponentAction> {
+   |                                                   +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> rusty-app/src/components/server_list.rs:76:13
+   |
+76 |     fn view(&self, theme: ThemeColors) -> Element<ComponentAction> {
+   |             ^^^^^                         ^^^^^^^^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+   |             |
+   |             the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+   |
+76 |     fn view(&self, theme: ThemeColors) -> Element<'_, ComponentAction> {
+   |                                                   +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> rusty-app/src/components/table_list.rs:86:13
+   |
+86 |     fn view(&self, theme: ThemeColors) -> Element<ComponentAction> {
+   |             ^^^^^                         ^^^^^^^^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+   |             |
+   |             the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+   |
+86 |     fn view(&self, theme: ThemeColors) -> Element<'_, ComponentAction> {
+   |                                                   +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> rusty-app/src/query_editor.rs:67:17
+   |
+67 |     pub fn view(&self) -> Element<QueryEditorMessage> {
+   |                 ^^^^^     ^^^^^^^^^^^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+   |                 |
+   |                 the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+   |
+67 |     pub fn view(&self) -> Element<'_, QueryEditorMessage> {
+   |                                   +++
+
+warning: `rusty-app` (lib) generated 8 warnings (run `cargo fix --lib -p rusty-app` to apply 7 suggestions)
+warning: unused variable: `query_text`
+    --> rusty-app/src/main.rs:1806:13
+     |
+1806 |         let query_text = match self.main_panel.get_query_text(tab_id) {
+     |             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_query_text`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `config_manager` and `container_manager` are never read
+  --> rusty-app/src/main.rs:65:5
+   |
+53 | struct DatabaseIDE {
+   |        ----------- fields in this struct
+...
+65 |     config_manager: ConfigManager,
+   |     ^^^^^^^^^^^^^^
+66 |     container_manager: ContainerManager,
+   |     ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: variants `NewConnection`, `DisconnectFromDatabase`, `ReconnectToDatabase`, and `ShowSettings` are never constructed
+   --> rusty-app/src/main.rs:331:5
+    |
+318 | enum Message {
+    |      ------- variants in this enum
+...
+331 |     NewConnection,
+    |     ^^^^^^^^^^^^^
+332 |     ConnectToDatabase(ConnectionConfig, Option<String>), // config, password
+333 |     DisconnectFromDatabase(String),                      // connection ID
+    |     ^^^^^^^^^^^^^^^^^^^^^^
+334 |     ReconnectToDatabase(String),                         // connection ID
+    |     ^^^^^^^^^^^^^^^^^^^
+...
+339 |     ShowSettings,
+    |     ^^^^^^^^^^^^
+    |
+    = note: `Message` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: `rusty-app` (bin "rusty-app") generated 3 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.17s
+warning: the following packages contain code that will be rejected by a future version of Rust: sqlx-postgres v0.7.4
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running `target/debug/rusty-app`
+[2m2026-02-19T01:35:36.613879Z[0m [32m INFO[0m [2mrusty_app[0m[2m:[0m rusty-app starting [3mversion[0m[2m=[0m"0.0.1"
+[2m2026-02-19T01:35:36.712154Z[0m [33m WARN[0m [2mcosmic_text::font::system[0m[2m:[0m failed to load font 'GB18030Bitmap'
+[2m2026-02-19T01:35:36.712692Z[0m [33m WARN[0m [2mcosmic_text::font::system[0m[2m:[0m failed to load font 'GB18030Bitmap'
+[2m2026-02-19T01:35:36.713089Z[0m [32m INFO[0m [2mrusty_app[0m[2m:[0m Loaded saved connections from settings [3mcount[0m[2m=[0m0
+[2m2026-02-19T01:35:36.809755Z[0m [32m INFO[0m [2mrusty_app[0m[2m:[0m Found running containers [3mcount[0m[2m=[0m0
+[2m2026-02-19T01:35:36.810334Z[0m [32m INFO[0m [2mrusty_app::settings[0m[2m:[0m Settings saved successfully
+[2m2026-02-19T01:35:36.810357Z[0m [32m INFO[0m [2mrusty_app[0m[2m:[0m Synced connections with container state [3mcount[0m[2m=[0m0
+[2m2026-02-19T01:35:36.859514Z[0m [32m INFO[0m [2miced_wgpu::window::compositor[0m[2m:[0m Settings {
+    present_mode: AutoVsync,
+    backends: Backends(
+        VULKAN | GL | METAL | DX12 | BROWSER_WEBGPU,
+    ),
+    default_font: Font {
+        family: SansSerif,
+        weight: Normal,
+        stretch: Normal,
+        style: Normal,
+    },
+    default_text_size: Pixels(
+        16.0,
+    ),
+    antialiasing: None,
+}
+[2m2026-02-19T01:35:36.859956Z[0m [32m INFO[0m [2mwgpu_core::instance[0m[2m:[0m Adapter Metal AdapterInfo { name: "Apple M4 Max", vendor: 0, device: 0, device_type: IntegratedGpu, driver: "", driver_info: "", backend: Metal }
+[2m2026-02-19T01:35:36.860291Z[0m [32m INFO[0m [2miced_wgpu::window::compositor[0m[2m:[0m Available adapters: [
+    AdapterInfo {
+        name: "Apple M4 Max",
+        vendor: 0,
+        device: 0,
+        device_type: IntegratedGpu,
+        driver: "",
+        driver_info: "",
+        backend: Metal,
+    },
+]
+[2m2026-02-19T01:35:36.860932Z[0m [32m INFO[0m [2mwgpu_core::instance[0m[2m:[0m Adapter Metal AdapterInfo { name: "Apple M4 Max", vendor: 0, device: 0, device_type: IntegratedGpu, driver: "", driver_info: "", backend: Metal }
+[2m2026-02-19T01:35:36.860993Z[0m [32m INFO[0m [2miced_wgpu::window::compositor[0m[2m:[0m Selected: AdapterInfo {
+    name: "Apple M4 Max",
+    vendor: 0,
+    device: 0,
+    device_type: IntegratedGpu,
+    driver: "",
+    driver_info: "",
+    backend: Metal,
+}
+[2m2026-02-19T01:35:36.861069Z[0m [32m INFO[0m [2miced_wgpu::window::compositor[0m[2m:[0m Available formats: Copied {
+    it: Iter(
+        [
+            Bgra8UnormSrgb,
+            Bgra8Unorm,
+            Rgba16Float,
+            Rgb10a2Unorm,
+        ],
+    ),
+}
+[2m2026-02-19T01:35:36.861090Z[0m [32m INFO[0m [2miced_wgpu::window::compositor[0m[2m:[0m Available alpha modes: [
+    Opaque,
+    PostMultiplied,
+]
+[2m2026-02-19T01:35:36.861117Z[0m [32m INFO[0m [2miced_wgpu::window::compositor[0m[2m:[0m Selected format: Bgra8UnormSrgb with alpha mode: PostMultiplied
+[2m2026-02-19T01:35:36.885901Z[0m [32m INFO[0m [2miced_winit::program[0m[2m:[0m Window attributes for id `Id(
+    1,
+)`: WindowAttributes {
+    inner_size: Some(
+        Logical(
+            LogicalSize {
+                width: 1280.0,
+                height: 800.0,
+            },
+        ),
+    ),
+    min_inner_size: None,
+    max_inner_size: None,
+    position: None,
+    resizable: true,
+    enabled_buttons: WindowButtons(
+        CLOSE | MINIMIZE | MAXIMIZE,
+    ),
+    title: "rusty-app: the ide",
+    maximized: false,
+    visible: false,
+    transparent: false,
+    blur: false,
+    decorations: true,
+    window_icon: None,
+    preferred_theme: None,
+    resize_increments: None,
+    content_protected: false,
+    window_level: Normal,
+    active: true,
+    cursor: Icon(
+        Default,
+    ),
+    parent_window: None,
+    fullscreen: None,
+    platform_specific: PlatformSpecificWindowAttributes {
+        movable_by_window_background: false,
+        titlebar_transparent: false,
+        title_hidden: false,
+        titlebar_hidden: false,
+        titlebar_buttons_hidden: false,
+        fullsize_content_view: false,
+        disallow_hidpi: false,
+        has_shadow: true,
+        accepts_first_mouse: true,
+        tabbing_identifier: None,
+        option_as_alt: None,
+        borderless_game: false,
+    },
+}
+Menu action: Tools(Preferences)
