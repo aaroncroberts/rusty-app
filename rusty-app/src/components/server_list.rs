@@ -4,9 +4,9 @@ use crate::button_styles;
 use crate::components::{Component, ComponentAction, ComponentId, ServerListAction};
 use crate::icons;
 use crate::theme::ThemeColors;
+use arni::ConnectionConfig;
 use iced::widget::{button, column, container, horizontal_space, row, scrollable, text};
 use iced::{Border, Element, Fill};
-use arni::ConnectionConfig;
 
 /// Server list component with internal connection list
 #[derive(Debug, Clone)]
@@ -75,7 +75,7 @@ impl Component for ServerListComponent {
         ComponentId::ServerList
     }
 
-    fn view(&self, theme: ThemeColors) -> Element<ComponentAction> {
+    fn view(&self, theme: ThemeColors) -> Element<'_, ComponentAction> {
         // New connection button
         let new_conn_btn = button(text("+ New Connection").size(12))
             .padding([6, 10])
@@ -84,7 +84,10 @@ impl Component for ServerListComponent {
 
         let mut content_col = column![
             row![
-                text(icons::server()).font(icons::font()).size(14).color(theme.accent),
+                text(icons::server())
+                    .font(icons::font())
+                    .size(14)
+                    .color(theme.accent),
                 text("Servers").size(12).color(theme.text),
                 horizontal_space(),
                 new_conn_btn,

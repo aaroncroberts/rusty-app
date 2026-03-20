@@ -346,7 +346,7 @@ impl SettingsEditor {
             .style(|_theme| container::Style {
                 background: Some(self.theme.background_secondary.into()),
                 border: iced::Border {
-                    color: self.theme.border.into(),
+                    color: self.theme.border,
                     width: 1.0,
                     ..Default::default()
                 },
@@ -417,7 +417,7 @@ impl SettingsEditor {
             .style(|_theme| container::Style {
                 background: Some(self.theme.background_secondary.into()),
                 border: iced::Border {
-                    color: self.theme.border.into(),
+                    color: self.theme.border,
                     width: 1.0,
                     ..Default::default()
                 },

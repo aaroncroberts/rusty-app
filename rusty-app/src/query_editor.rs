@@ -38,7 +38,8 @@ impl QueryEditor {
 
     /// Get the current query text
     pub fn text(&self) -> String {
-        self.content.text()
+        // iced's text_editor::Content always appends a trailing newline; strip it.
+        self.content.text().trim_end_matches('\n').to_string()
     }
 
     /// Set the query text
@@ -64,7 +65,7 @@ impl QueryEditor {
     }
 
     /// Render the query editor
-    pub fn view(&self) -> Element<QueryEditorMessage> {
+    pub fn view(&self) -> Element<'_, QueryEditorMessage> {
         let theme = self.theme;
 
         // Editor area with monospace font

@@ -7,9 +7,9 @@ use crate::button_styles;
 use crate::query_editor::QueryEditor;
 use crate::result_grid::ResultGrid;
 use crate::theme::ThemeColors;
+use arni::QueryResult;
 use iced::widget::{button, column, container, row, text};
 use iced::{Border, Element, Fill, Length};
-use arni::QueryResult;
 use std::collections::HashMap;
 
 /// Identifier for a tab

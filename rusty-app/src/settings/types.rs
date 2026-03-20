@@ -4,7 +4,7 @@ use arni::ConnectionConfig;
 use serde::{Deserialize, Serialize};
 
 /// Application settings
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Settings {
     /// Logging configuration
     #[serde(default)]
@@ -17,16 +17,6 @@ pub struct Settings {
     /// UI preferences
     #[serde(default)]
     pub ui_preferences: UiPreferences,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            logging: LoggingSettings::default(),
-            connections: Vec::new(),
-            ui_preferences: UiPreferences::default(),
-        }
-    }
 }
 
 /// Logging configuration settings
@@ -96,61 +86,41 @@ impl Default for LoggingSettings {
 }
 
 /// Console output format
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ConsoleFormat {
     Pretty,
+    #[default]
     Compact,
 }
 
-impl Default for ConsoleFormat {
-    fn default() -> Self {
-        ConsoleFormat::Compact
-    }
-}
-
 /// Console output writer
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ConsoleWriter {
     Stdout,
+    #[default]
     Stderr,
 }
 
-impl Default for ConsoleWriter {
-    fn default() -> Self {
-        ConsoleWriter::Stderr
-    }
-}
-
 /// File output format
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FileFormat {
+    #[default]
     Text,
     Json,
 }
 
-impl Default for FileFormat {
-    fn default() -> Self {
-        FileFormat::Text
-    }
-}
-
 /// File rotation policy
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RotationPolicy {
+    #[default]
     Daily,
     Hourly,
     Minutely,
     Never,
-}
-
-impl Default for RotationPolicy {
-    fn default() -> Self {
-        RotationPolicy::Daily
-    }
 }
 
 /// UI preferences

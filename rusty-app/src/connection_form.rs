@@ -4,9 +4,9 @@
 //! database type selection and connection parameters.
 
 use crate::theme::ThemeColors;
+use arni::DatabaseType;
 use iced::widget::{button, column, container, pick_list, row, text, text_input};
 use iced::{Border, Element, Fill};
-use arni::DatabaseType;
 
 /// Wrapper for DatabaseType to implement Display
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

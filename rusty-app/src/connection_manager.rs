@@ -7,17 +7,12 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Status of a database connection
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ConnectionStatus {
     Connected,
+    #[default]
     Disconnected,
     Error(String),
-}
-
-impl Default for ConnectionStatus {
-    fn default() -> Self {
-        Self::Disconnected
-    }
 }
 
 /// Create an arni adapter for the given database type and config
@@ -32,9 +27,7 @@ fn make_adapter(config: ConnectionConfig) -> Box<dyn DbAdapter + Send + Sync> {
         #[cfg(feature = "mongodb")]
         DatabaseType::MongoDB => Box::new(arni::adapters::mongodb::MongoDbAdapter::new(config)),
         #[cfg(feature = "mssql")]
-        DatabaseType::SQLServer => {
-            Box::new(arni::adapters::mssql::SqlServerAdapter::new(config))
-        }
+        DatabaseType::SQLServer => Box::new(arni::adapters::mssql::SqlServerAdapter::new(config)),
         #[cfg(feature = "oracle")]
         DatabaseType::Oracle => Box::new(arni::adapters::oracle::OracleAdapter::new(config)),
         #[allow(unreachable_patterns)]
@@ -102,7 +95,10 @@ impl ActiveConnection {
 
     pub async fn execute_query(&self, query: &str) -> Result<QueryResult, String> {
         let adapter = self.adapter.lock().await;
-        adapter.execute_query(query).await.map_err(|e| e.to_string())
+        adapter
+            .execute_query(query)
+            .await
+            .map_err(|e| e.to_string())
     }
 }
 

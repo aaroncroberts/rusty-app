@@ -11,8 +11,9 @@ use iced::{Border, Element, Fill};
 pub const STATUS_BAR_HEIGHT: f32 = 30.0;
 
 /// Connection status for database connection indicator
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ConnectionStatus {
+    #[default]
     Disconnected,
     Connecting(String), // Connection name being connected
     Connected(String),  // Connection name
@@ -28,12 +29,6 @@ impl ConnectionStatus {
             ConnectionStatus::Connected(name) => format!("Connected: {}", name),
             ConnectionStatus::Error(msg) => format!("Error: {}", msg),
         }
-    }
-}
-
-impl Default for ConnectionStatus {
-    fn default() -> Self {
-        ConnectionStatus::Disconnected
     }
 }
 

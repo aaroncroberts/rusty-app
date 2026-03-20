@@ -32,7 +32,7 @@ impl Component for ResultsViewComponent {
         ComponentId::ResultsView
     }
 
-    fn view(&self, theme: ThemeColors) -> Element<ComponentAction> {
+    fn view(&self, theme: ThemeColors) -> Element<'_, ComponentAction> {
         // Placeholder view - actual result grid rendering will be integrated later
         let content = column![text("Results").size(14).color(theme.text),]
             .spacing(10)

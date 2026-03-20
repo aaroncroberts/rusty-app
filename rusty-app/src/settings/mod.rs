@@ -237,9 +237,9 @@ impl SettingsManager {
 /// Expand ~ in path to home directory
 fn expand_home_dir(path: &Path) -> Result<PathBuf> {
     if let Some(path_str) = path.to_str() {
-        if path_str.starts_with("~/") {
+        if let Some(stripped) = path_str.strip_prefix("~/") {
             if let Some(home) = dirs::home_dir() {
-                return Ok(home.join(&path_str[2..]));
+                return Ok(home.join(stripped));
             } else {
                 return Err(SettingsError::PathExpansion(
                     "Could not determine home directory".to_string(),
@@ -417,6 +417,7 @@ mod tests {
             username: Some("testuser".to_string()),
             use_ssl: false,
             parameters: HashMap::new(),
+            pool_config: None,
         };
 
         manager.settings_mut().connections.push(conn);

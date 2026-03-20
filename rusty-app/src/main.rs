@@ -1,3 +1,4 @@
+use arni::{ConnectionConfig, DatabaseType};
 use iced::event::Event;
 use iced::mouse;
 use iced::widget::{column, container, row};
@@ -37,7 +38,6 @@ use rusty_app::sqlserver_connection_form::{
 use rusty_app::status_bar::{ConnectionStatus, StatusBar};
 use rusty_app::theme::ThemeColors;
 use rusty_app::views::{RegionId, ViewRegistry};
-use arni::{ConnectionConfig, DatabaseType};
 
 use arni::QueryResult;
 use std::collections::HashMap;
@@ -77,6 +77,7 @@ struct DatabaseIDE {
     is_resizing: bool,
     last_mouse_x: Option<f32>,
     connection_status: ConnectionStatus,
+    #[allow(dead_code)]
     container_manager: ContainerManager,
     settings_manager: SettingsManager,
     saved_connections: Vec<ConnectionConfig>,
@@ -142,12 +143,8 @@ impl Default for DatabaseIDE {
         // Initialize settings editor data from manager
         let settings_editor_data = SettingsEditorData::from_manager(&settings_manager);
 
-        // Set theme based on settings
-        let theme = if ui_prefs.theme == "dark" {
-            ThemeColors::dark()
-        } else {
-            ThemeColors::dark() // TODO: Add ThemeColors::light()
-        };
+        // Set theme based on settings (TODO: Add ThemeColors::light() when available)
+        let theme = ThemeColors::dark();
 
         let mut main_panel = MainPanel::new(theme);
 
@@ -296,6 +293,7 @@ enum ConnectionOperation {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 enum Message {
     MenuToggle(MenuItem),
     MenuAction(MenuAction),
@@ -733,12 +731,8 @@ impl DatabaseIDE {
                         self.panel_width = ui_prefs.panel_width as f32;
                         self.show_left_panel = ui_prefs.show_left_panel;
 
-                        // Update theme if changed
-                        let new_theme = if ui_prefs.theme == "dark" {
-                            ThemeColors::dark()
-                        } else {
-                            ThemeColors::dark() // TODO: Add ThemeColors::light()
-                        };
+                        // Update theme if changed (TODO: Add ThemeColors::light() when available)
+                        let new_theme = ThemeColors::dark();
                         self.theme = new_theme;
 
                         // Update all components with new theme
@@ -816,7 +810,9 @@ impl DatabaseIDE {
                                     self.oracle_form_data = OracleConnectionFormData::new();
                                     self.oracle_test_result = None;
                                 }
-                                DatabaseType::DuckDB => unreachable!("DuckDB not used in rusty-app"),
+                                DatabaseType::DuckDB => {
+                                    unreachable!("DuckDB not used in rusty-app")
+                                }
                             }
                         }
                         Task::none()
@@ -1649,7 +1645,6 @@ impl DatabaseIDE {
 
     /// Convert ConnectionFormData to ConnectionConfig
     fn form_data_to_config(&self, form_data: &ConnectionFormData) -> ConnectionConfig {
-
         // Generate a unique ID from the connection name
         let id = form_data.name.to_lowercase().replace(' ', "-");
 
@@ -1865,7 +1860,7 @@ impl DatabaseIDE {
         }
 
         // Get query text from the editor
-        let query_text = match self.main_panel.get_query_text(tab_id) {
+        let _query_text = match self.main_panel.get_query_text(tab_id) {
             Some(text) => {
                 if text.trim().is_empty() {
                     self.query_errors

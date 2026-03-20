@@ -1,13 +1,13 @@
 //! rusty-app library - UI components and theme for the Database IDE
 
 pub mod adapter_selector;
-pub mod icons;
 pub mod button_styles;
 pub mod components;
 pub mod connection_form;
 pub mod connection_list;
 pub mod connection_manager;
 pub mod container;
+pub mod icons;
 pub mod left_panel;
 pub mod main_panel;
 pub mod menu_bar;

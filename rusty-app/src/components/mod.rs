@@ -141,7 +141,7 @@ pub trait Component: Send {
     ///
     /// # Returns
     /// Element that emits ComponentAction messages
-    fn view(&self, theme: ThemeColors) -> Element<ComponentAction>;
+    fn view(&self, theme: ThemeColors) -> Element<'_, ComponentAction>;
 }
 
 /// Map a component's Element<ComponentAction> to Element<Message>

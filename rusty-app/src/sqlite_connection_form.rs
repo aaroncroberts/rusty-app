@@ -8,19 +8,10 @@ use iced::widget::{button, column, container, row, text, text_input};
 use iced::{Border, Element, Fill};
 
 /// SQLite connection form data
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct SQLiteConnectionFormData {
     pub name: String,
     pub file_path: String,
-}
-
-impl Default for SQLiteConnectionFormData {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            file_path: String::new(),
-        }
-    }
 }
 
 impl SQLiteConnectionFormData {

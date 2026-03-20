@@ -5,9 +5,9 @@
 
 use crate::button_styles;
 use crate::theme::ThemeColors;
+use arni::DatabaseType;
 use iced::widget::{button, column, container, pick_list, row, text};
 use iced::{Border, Element, Fill};
-use arni::DatabaseType;
 
 /// Wrapper for DatabaseType to implement Display for the picker
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

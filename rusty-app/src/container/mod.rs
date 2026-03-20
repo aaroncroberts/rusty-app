@@ -117,7 +117,7 @@ impl ContainerManager {
         }
 
         let output = Command::new("podman")
-            .args(&[
+            .args([
                 "ps",
                 "-a",
                 "--filter",
@@ -194,7 +194,7 @@ impl ContainerManager {
         }
 
         let output = Command::new("podman")
-            .args(&[
+            .args([
                 "ps",
                 "-a",
                 "--filter",
@@ -247,7 +247,7 @@ impl ContainerManager {
 
         let output = Command::new("podman-compose")
             .current_dir(&self.compose_dir)
-            .args(&["up", "-d", container_name])
+            .args(["up", "-d", container_name])
             .output()
             .map_err(|e| ContainerError::CommandFailed(e.to_string()))?;
 
@@ -286,7 +286,7 @@ impl ContainerManager {
 
         let output = Command::new("podman-compose")
             .current_dir(&self.compose_dir)
-            .args(&["stop", container_name])
+            .args(["stop", container_name])
             .output()
             .map_err(|e| ContainerError::CommandFailed(e.to_string()))?;
 
@@ -322,7 +322,7 @@ impl ContainerManager {
 
         let output = Command::new("podman-compose")
             .current_dir(&self.compose_dir)
-            .args(&["up", "-d"])
+            .args(["up", "-d"])
             .output()
             .map_err(|e| ContainerError::CommandFailed(e.to_string()))?;
 
@@ -358,7 +358,7 @@ impl ContainerManager {
 
         let output = Command::new("podman-compose")
             .current_dir(&self.compose_dir)
-            .args(&["down"])
+            .args(["down"])
             .output()
             .map_err(|e| ContainerError::CommandFailed(e.to_string()))?;
 

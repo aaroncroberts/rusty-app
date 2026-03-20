@@ -84,10 +84,13 @@ impl Component for TableListComponent {
         ComponentId::TableList
     }
 
-    fn view(&self, theme: ThemeColors) -> Element<ComponentAction> {
+    fn view(&self, theme: ThemeColors) -> Element<'_, ComponentAction> {
         let mut content_col = column![
             row![
-                text(icons::table()).font(icons::font()).size(14).color(theme.accent),
+                text(icons::table())
+                    .font(icons::font())
+                    .size(14)
+                    .color(theme.accent),
                 text("Tables").size(12).color(theme.text),
             ]
             .spacing(6)

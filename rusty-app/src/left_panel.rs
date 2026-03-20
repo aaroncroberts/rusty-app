@@ -31,8 +31,9 @@ const RESIZE_HANDLE_WIDTH: f32 = 4.0;
 pub const ICON_RAIL_WIDTH: f32 = 28.0;
 
 /// Available tabs in the left panel
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PanelTab {
+    #[default]
     Servers,
     Tables,
     Properties,
@@ -54,12 +55,6 @@ impl PanelTab {
     }
 }
 
-impl Default for PanelTab {
-    fn default() -> Self {
-        PanelTab::Servers
-    }
-}
-
 /// Left panel component with resizable width
 #[derive(Debug, Clone)]
 pub struct LeftPanel {
@@ -76,6 +71,7 @@ impl LeftPanel {
     ///
     /// Dynamically generates tabs from enabled views in ViewRegistry.
     /// When `collapsed` is true, renders a narrow icon rail with only the expand button.
+    #[allow(clippy::too_many_arguments)]
     pub fn view<'a, Message: 'a + Clone + From<ComponentAction>>(
         &'a self,
         width: f32,
@@ -144,8 +140,11 @@ impl LeftPanel {
         .align_y(Alignment::Center);
 
         // Panel content with tab bar header and tab content
-        let content = column![header_row, self.tab_content(active_component, view_registry)]
-            .spacing(0);
+        let content = column![
+            header_row,
+            self.tab_content(active_component, view_registry)
+        ]
+        .spacing(0);
 
         // Resize handle (vertical bar on right edge) - draggable
         let resize_handle_visual = container(horizontal_space())

@@ -7,7 +7,6 @@ use std::collections::HashMap;
 /// Container credentials for local development containers
 struct ContainerCredentials {
     username: &'static str,
-    password: &'static str,
     database: &'static str,
 }
 
@@ -17,33 +16,27 @@ impl ContainerCredentials {
         match db_type {
             DatabaseType::Postgres => Self {
                 username: "test_user",
-                password: "test_password",
                 database: "test_db",
             },
             DatabaseType::MySQL => Self {
                 username: "test_user",
-                password: "test_password",
                 database: "test_db",
             },
             DatabaseType::MongoDB => Self {
                 username: "test_user",
-                password: "test_password",
                 database: "test_db",
             },
             DatabaseType::SQLServer => Self {
                 username: "sa",
-                password: "TestPassword123!",
                 database: "master",
             },
             DatabaseType::Oracle => Self {
                 username: "test_user",
-                password: "test_password",
                 database: "XE", // SID for Oracle XE
             },
             DatabaseType::DuckDB => unreachable!("DuckDB not used in rusty-app"),
             DatabaseType::SQLite => Self {
                 username: "",
-                password: "",
                 database: "memory.db",
             },
         }

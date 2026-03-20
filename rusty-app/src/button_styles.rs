@@ -38,13 +38,11 @@ pub fn secondary(theme: ThemeColors) -> impl Fn(&iced::Theme, button::Status) ->
         let is_hovered = matches!(status, button::Status::Hovered);
 
         button::Style {
-            background: Some(
-                if is_hovered {
-                    theme.border.into()
-                } else {
-                    theme.background_secondary.into()
-                }
-            ),
+            background: Some(if is_hovered {
+                theme.border.into()
+            } else {
+                theme.background_secondary.into()
+            }),
             text_color: if is_hovered {
                 theme.text
             } else {
@@ -112,17 +110,15 @@ pub fn danger(theme: ThemeColors) -> impl Fn(&iced::Theme, button::Status) -> bu
 ///
 /// Use when button action is not currently available
 pub fn disabled(theme: ThemeColors) -> impl Fn(&iced::Theme, button::Status) -> button::Style {
-    move |_theme, _status| {
-        button::Style {
-            background: Some(theme.background_secondary.into()),
-            text_color: theme.text_secondary,
-            border: Border {
-                color: theme.border,
-                width: 1.0,
-                radius: BUTTON_BORDER_RADIUS.into(),
-            },
-            shadow: iced::Shadow::default(),
-        }
+    move |_theme, _status| button::Style {
+        background: Some(theme.background_secondary.into()),
+        text_color: theme.text_secondary,
+        border: Border {
+            color: theme.border,
+            width: 1.0,
+            radius: BUTTON_BORDER_RADIUS.into(),
+        },
+        shadow: iced::Shadow::default(),
     }
 }
 

@@ -7,9 +7,9 @@
 //! - Error display
 
 use crate::theme::ThemeColors;
+use arni::QueryResult;
 use iced::widget::{column, container, row, scrollable, text};
 use iced::{Border, Element, Fill, Length};
-use arni::QueryResult;
 
 /// Result grid component for displaying query results
 pub struct ResultGrid {

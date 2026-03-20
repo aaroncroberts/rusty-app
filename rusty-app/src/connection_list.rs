@@ -4,9 +4,9 @@
 //! connection names, and status indicators (connected/disconnected).
 
 use crate::theme::ThemeColors;
+use arni::{ConnectionConfig, DatabaseType};
 use iced::widget::{column, container, horizontal_space, row, scrollable, text};
 use iced::{Border, Element, Fill};
-use arni::{ConnectionConfig, DatabaseType};
 use std::collections::HashMap;
 
 /// Connection status for display

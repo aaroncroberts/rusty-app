@@ -145,7 +145,7 @@ impl Component for EditorComponent {
         ComponentId::Editor
     }
 
-    fn view(&self, theme: ThemeColors) -> Element<ComponentAction> {
+    fn view(&self, theme: ThemeColors) -> Element<'_, ComponentAction> {
         // Tab bar
         let mut tab_row = row![].spacing(2);
 

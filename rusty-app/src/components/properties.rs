@@ -95,10 +95,13 @@ impl Component for PropertiesComponent {
         ComponentId::Properties
     }
 
-    fn view(&self, theme: ThemeColors) -> Element<ComponentAction> {
+    fn view(&self, theme: ThemeColors) -> Element<'_, ComponentAction> {
         let mut content_col = column![
             row![
-                text(icons::symbol_key()).font(icons::font()).size(14).color(theme.accent),
+                text(icons::symbol_key())
+                    .font(icons::font())
+                    .size(14)
+                    .color(theme.accent),
                 text("Properties").size(12).color(theme.text),
             ]
             .spacing(6)

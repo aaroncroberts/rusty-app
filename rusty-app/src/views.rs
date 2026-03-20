@@ -221,7 +221,7 @@ mod tests {
             self.title
         }
 
-        fn view(&self, _theme: ThemeColors) -> Element<ComponentAction> {
+        fn view(&self, _theme: ThemeColors) -> Element<'_, ComponentAction> {
             iced::widget::text(self.title).into()
         }
     }
