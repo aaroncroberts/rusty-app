@@ -1,4 +1,7 @@
 {
-  "database": "beads.db",
-  "jsonl_export": "issues.jsonl"
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "server",
+  "dolt_database": "rusty_app",
+  "project_id": "ba83fef3-62ce-4a7f-805e-0e1224737d76"
 }
