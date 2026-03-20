@@ -97,11 +97,8 @@ impl Component for TableListComponent {
                     .color(theme.text_secondary),
             );
         } else if self.tables.is_empty() {
-            content_col = content_col.push(
-                text("(No tables)")
-                    .size(11)
-                    .color(theme.text_secondary),
-            );
+            content_col =
+                content_col.push(text("(No tables)").size(11).color(theme.text_secondary));
         } else {
             for table in &self.tables {
                 let table_name = format!("{}.{}", table.schema, table.name);
@@ -124,21 +121,17 @@ impl Component for TableListComponent {
                             border: Border::default(),
                             ..Default::default()
                         })
-                        .on_press(ComponentAction::TableList(
-                            TableListAction::SelectTable(table_name),
-                        )),
+                        .on_press(ComponentAction::TableList(TableListAction::SelectTable(
+                            table_name,
+                        ))),
                 );
             }
         }
 
-        container(
-            scrollable(content_col.padding(15))
-                .width(Fill)
-                .height(Fill),
-        )
-        .width(Fill)
-        .height(Fill)
-        .into()
+        container(scrollable(content_col.padding(15)).width(Fill).height(Fill))
+            .width(Fill)
+            .height(Fill)
+            .into()
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::adapter::{
-    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseMetadata, DatabaseType,
-    ForeignKeyInfo, IndexInfo, ProcedureInfo, QueryResult, QueryValue, ServerInfo, TableInfo,
-    TableMetadata, ViewInfo,
+    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseMetadata, DatabaseType, ForeignKeyInfo,
+    IndexInfo, ProcedureInfo, QueryResult, QueryValue, ServerInfo, TableInfo, TableMetadata,
+    ViewInfo,
 };
 use crate::error::{DataError, Result};
 use async_trait::async_trait;
@@ -23,7 +23,9 @@ impl SqliteAdapter {
     /// Validate database path
     fn validate_database_path(path: &str) -> Result<()> {
         if path.is_empty() {
-            return Err(DataError::Config("Database path cannot be empty".to_string()));
+            return Err(DataError::Config(
+                "Database path cannot be empty".to_string(),
+            ));
         }
         // Allow :memory: for in-memory databases
         if path == ":memory:" {
@@ -101,9 +103,9 @@ impl SqliteAdapter {
                     }
                 }
                 "INTEGER" | "INT" | "TINYINT" | "SMALLINT" | "MEDIUMINT" | "BIGINT" => {
-                    let val: Option<i64> = row.try_get(i).map_err(|e| {
-                        DataError::Query(format!("Failed to get int value: {}", e))
-                    })?;
+                    let val: Option<i64> = row
+                        .try_get(i)
+                        .map_err(|e| DataError::Query(format!("Failed to get int value: {}", e)))?;
                     match val {
                         Some(v) => QueryValue::Int(v),
                         None => QueryValue::Null,
@@ -203,11 +205,15 @@ impl DatabaseAdapter for SqliteAdapter {
                 let error_msg = e.to_string();
 
                 // Categorize SQLite connection errors
-                let error_category = if error_msg.contains("unable to open database file") || error_msg.contains("Permission denied") {
+                let error_category = if error_msg.contains("unable to open database file")
+                    || error_msg.contains("Permission denied")
+                {
                     "permission"
                 } else if error_msg.contains("disk I/O error") || error_msg.contains("disk full") {
                     "disk_io"
-                } else if error_msg.contains("not a database") || error_msg.contains("file is not a database") {
+                } else if error_msg.contains("not a database")
+                    || error_msg.contains("file is not a database")
+                {
                     "corrupt"
                 } else if error_msg.contains("database is locked") {
                     "locked"
@@ -222,7 +228,9 @@ impl DatabaseAdapter for SqliteAdapter {
                     "Failed to connect to SQLite"
                 );
 
-                if error_msg.contains("unable to open database file") || error_msg.contains("Permission denied") {
+                if error_msg.contains("unable to open database file")
+                    || error_msg.contains("Permission denied")
+                {
                     DataError::Connection(format!(
                         "Permission denied or file not accessible: '{}' - {}",
                         database_path, e
@@ -232,7 +240,9 @@ impl DatabaseAdapter for SqliteAdapter {
                         "Disk I/O error for database '{}' - {}",
                         database_path, e
                     ))
-                } else if error_msg.contains("not a database") || error_msg.contains("file is not a database") {
+                } else if error_msg.contains("not a database")
+                    || error_msg.contains("file is not a database")
+                {
                     DataError::Connection(format!(
                         "Invalid or corrupt database file: '{}' - {}",
                         database_path, e
@@ -298,54 +308,67 @@ impl DatabaseAdapter for SqliteAdapter {
         );
         let start = std::time::Instant::now();
 
-        let rows = sqlx::query(query)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| {
-                let elapsed = start.elapsed();
-                let error_msg = e.to_string();
+        let rows = sqlx::query(query).fetch_all(pool).await.map_err(|e| {
+            let elapsed = start.elapsed();
+            let error_msg = e.to_string();
 
-                // Categorize SQLite query errors
-                let error_category = if error_msg.contains("syntax error") || error_msg.contains("near") {
-                    "syntax"
-                } else if error_msg.contains("no such table") || error_msg.contains("no such column") {
-                    "object_not_found"
-                } else if error_msg.contains("UNIQUE constraint failed") {
-                    "unique_constraint"
-                } else if error_msg.contains("FOREIGN KEY constraint failed") {
-                    "foreign_key_constraint"
-                } else if error_msg.contains("NOT NULL constraint failed") {
-                    "not_null_constraint"
-                } else if error_msg.contains("CHECK constraint failed") {
-                    "check_constraint"
-                } else {
-                    "unknown"
-                };
+            // Categorize SQLite query errors
+            let error_category = if error_msg.contains("syntax error") || error_msg.contains("near")
+            {
+                "syntax"
+            } else if error_msg.contains("no such table") || error_msg.contains("no such column") {
+                "object_not_found"
+            } else if error_msg.contains("UNIQUE constraint failed") {
+                "unique_constraint"
+            } else if error_msg.contains("FOREIGN KEY constraint failed") {
+                "foreign_key_constraint"
+            } else if error_msg.contains("NOT NULL constraint failed") {
+                "not_null_constraint"
+            } else if error_msg.contains("CHECK constraint failed") {
+                "check_constraint"
+            } else {
+                "unknown"
+            };
 
-                warn!(
-                    error = %e,
-                    error_category = %error_category,
-                    query_snippet = %query_snippet,
-                    elapsed_ms = elapsed.as_millis(),
-                    "Query execution failed"
-                );
+            warn!(
+                error = %e,
+                error_category = %error_category,
+                query_snippet = %query_snippet,
+                elapsed_ms = elapsed.as_millis(),
+                "Query execution failed"
+            );
 
-                if error_msg.contains("syntax error") || error_msg.contains("near") {
-                    DataError::Query(format!("SQL syntax error: {} - Query: {}", e, query))
-                } else if error_msg.contains("no such table") || error_msg.contains("no such column") {
-                    DataError::Query(format!("Table or column not found: {} - Query: {}", e, query))
-                } else if error_msg.contains("UNIQUE constraint failed") {
-                    DataError::Query(format!("Unique constraint violation: {} - Query: {}", e, query))
-                } else if error_msg.contains("FOREIGN KEY constraint failed") {
-                    DataError::Query(format!("Foreign key constraint violation: {} - Query: {}", e, query))
-                } else if error_msg.contains("NOT NULL constraint failed") {
-                    DataError::Query(format!("Not null constraint violation: {} - Query: {}", e, query))
-                } else if error_msg.contains("CHECK constraint failed") {
-                    DataError::Query(format!("Check constraint violation: {} - Query: {}", e, query))
-                } else {
-                    DataError::Query(format!("Query failed: {} - Query: {}", e, query))
-                }
-            })?;
+            if error_msg.contains("syntax error") || error_msg.contains("near") {
+                DataError::Query(format!("SQL syntax error: {} - Query: {}", e, query))
+            } else if error_msg.contains("no such table") || error_msg.contains("no such column") {
+                DataError::Query(format!(
+                    "Table or column not found: {} - Query: {}",
+                    e, query
+                ))
+            } else if error_msg.contains("UNIQUE constraint failed") {
+                DataError::Query(format!(
+                    "Unique constraint violation: {} - Query: {}",
+                    e, query
+                ))
+            } else if error_msg.contains("FOREIGN KEY constraint failed") {
+                DataError::Query(format!(
+                    "Foreign key constraint violation: {} - Query: {}",
+                    e, query
+                ))
+            } else if error_msg.contains("NOT NULL constraint failed") {
+                DataError::Query(format!(
+                    "Not null constraint violation: {} - Query: {}",
+                    e, query
+                ))
+            } else if error_msg.contains("CHECK constraint failed") {
+                DataError::Query(format!(
+                    "Check constraint violation: {} - Query: {}",
+                    e, query
+                ))
+            } else {
+                DataError::Query(format!("Query failed: {} - Query: {}", e, query))
+            }
+        })?;
 
         let fetch_elapsed = start.elapsed();
 
@@ -464,15 +487,12 @@ impl DatabaseAdapter for SqliteAdapter {
                     name: row.try_get("name").map_err(|e| {
                         DataError::Query(format!("Failed to get column name: {}", e))
                     })?,
-                    data_type: row.try_get("type").map_err(|e| {
-                        DataError::Query(format!("Failed to get data type: {}", e))
-                    })?,
-                    nullable: row
-                        .try_get::<i64, _>("notnull")
-                        .map_err(|e| {
-                            DataError::Query(format!("Failed to get notnull flag: {}", e))
-                        })?
-                        == 0,
+                    data_type: row
+                        .try_get("type")
+                        .map_err(|e| DataError::Query(format!("Failed to get data type: {}", e)))?,
+                    nullable: row.try_get::<i64, _>("notnull").map_err(|e| {
+                        DataError::Query(format!("Failed to get notnull flag: {}", e))
+                    })? == 0,
                     default_value: row.try_get("dflt_value").ok(),
                     is_primary_key: row
                         .try_get::<i64, _>("pk")
@@ -489,7 +509,11 @@ impl DatabaseAdapter for SqliteAdapter {
         })
     }
 
-    async fn test_connection(&self, config: &ConnectionConfig, _password: Option<&str>) -> Result<bool> {
+    async fn test_connection(
+        &self,
+        config: &ConnectionConfig,
+        _password: Option<&str>,
+    ) -> Result<bool> {
         let connection_string = Self::build_connection_string(config);
 
         match SqlitePoolOptions::new()
@@ -534,9 +558,7 @@ impl DatabaseAdapter for SqliteAdapter {
         let compile_options = sqlx::query("PRAGMA compile_options")
             .fetch_all(pool)
             .await
-            .map_err(|e| {
-                DataError::Query(format!("Failed to get compile options: {}", e))
-            })?;
+            .map_err(|e| DataError::Query(format!("Failed to get compile options: {}", e)))?;
 
         let mut extra_info = std::collections::HashMap::new();
         extra_info.insert("full_version".to_string(), version.clone());
@@ -610,7 +632,11 @@ impl DatabaseAdapter for SqliteAdapter {
     }
 
     #[instrument(skip(self), fields(table = %table_name))]
-    async fn get_table_metadata(&self, table_name: &str, _schema: Option<&str>) -> Result<TableMetadata> {
+    async fn get_table_metadata(
+        &self,
+        table_name: &str,
+        _schema: Option<&str>,
+    ) -> Result<TableMetadata> {
         info!("Retrieving metadata for table: {}", table_name);
 
         let pool = self
@@ -624,7 +650,10 @@ impl DatabaseAdapter for SqliteAdapter {
             .fetch_one(pool)
             .await
             .map_err(|e| {
-                DataError::Query(format!("Failed to get row count for '{}': {}", table_name, e))
+                DataError::Query(format!(
+                    "Failed to get row count for '{}': {}",
+                    table_name, e
+                ))
             })?;
 
         let row_count: i64 = count_row
@@ -648,7 +677,7 @@ impl DatabaseAdapter for SqliteAdapter {
 
         Ok(TableMetadata {
             name: table_name.to_string(),
-            schema: None, // SQLite doesn't have schemas in the same way
+            schema: None,     // SQLite doesn't have schemas in the same way
             size_bytes: None, // Per-table size not easily available in SQLite
             row_count: Some(row_count),
             created_at: None,
@@ -693,7 +722,10 @@ impl DatabaseAdapter for SqliteAdapter {
                 .fetch_all(pool)
                 .await
                 .map_err(|e| {
-                    DataError::Query(format!("Failed to get index info for '{}': {}", index_name, e))
+                    DataError::Query(format!(
+                        "Failed to get index info for '{}': {}",
+                        index_name, e
+                    ))
                 })?;
 
             let mut columns = Vec::new();
@@ -709,7 +741,10 @@ impl DatabaseAdapter for SqliteAdapter {
                 .fetch_all(pool)
                 .await
                 .map_err(|e| {
-                    DataError::Query(format!("Failed to get index list for '{}': {}", table_name, e))
+                    DataError::Query(format!(
+                        "Failed to get index list for '{}': {}",
+                        table_name, e
+                    ))
                 })?;
 
             let mut is_unique = false;
@@ -743,7 +778,11 @@ impl DatabaseAdapter for SqliteAdapter {
     }
 
     #[instrument(skip(self), fields(table = %table_name))]
-    async fn get_foreign_keys(&self, table_name: &str, _schema: Option<&str>) -> Result<Vec<ForeignKeyInfo>> {
+    async fn get_foreign_keys(
+        &self,
+        table_name: &str,
+        _schema: Option<&str>,
+    ) -> Result<Vec<ForeignKeyInfo>> {
         info!("Retrieving foreign keys for table: {}", table_name);
 
         let pool = self
@@ -753,18 +792,16 @@ impl DatabaseAdapter for SqliteAdapter {
 
         // Use PRAGMA foreign_key_list to get FKs
         let query = format!("PRAGMA foreign_key_list({})", table_name);
-        let rows = sqlx::query(&query)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| {
-                DataError::Query(format!(
-                    "Failed to get foreign keys for '{}': {}",
-                    table_name, e
-                ))
-            })?;
+        let rows = sqlx::query(&query).fetch_all(pool).await.map_err(|e| {
+            DataError::Query(format!(
+                "Failed to get foreign keys for '{}': {}",
+                table_name, e
+            ))
+        })?;
 
         // Group by foreign key ID
-        let mut fk_map: std::collections::HashMap<i64, ForeignKeyInfo> = std::collections::HashMap::new();
+        let mut fk_map: std::collections::HashMap<i64, ForeignKeyInfo> =
+            std::collections::HashMap::new();
 
         for row in rows {
             let id: i64 = row
@@ -846,7 +883,11 @@ impl DatabaseAdapter for SqliteAdapter {
     }
 
     #[instrument(skip(self), fields(view = %view_name))]
-    async fn get_view_definition(&self, view_name: &str, _schema: Option<&str>) -> Result<Option<String>> {
+    async fn get_view_definition(
+        &self,
+        view_name: &str,
+        _schema: Option<&str>,
+    ) -> Result<Option<String>> {
         info!("Retrieving view definition for: {}", view_name);
 
         let pool = self
@@ -938,9 +979,10 @@ impl DatabaseAdapter for SqliteAdapter {
         debug!("Bulk insert query: {}", query);
 
         // Wrap in transaction for performance
-        let mut tx = pool.begin().await.map_err(|e| {
-            DataError::Query(format!("Failed to begin transaction: {}", e))
-        })?;
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to begin transaction: {}", e)))?;
 
         // Build and bind all parameters
         let mut query_builder = sqlx::query(&query);
@@ -959,19 +1001,16 @@ impl DatabaseAdapter for SqliteAdapter {
         }
 
         // Execute the query
-        let result = query_builder
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| {
-                DataError::Query(format!("Failed to bulk insert into {}: {}", table_name, e))
-            })?;
+        let result = query_builder.execute(&mut *tx).await.map_err(|e| {
+            DataError::Query(format!("Failed to bulk insert into {}: {}", table_name, e))
+        })?;
 
         let rows_affected = result.rows_affected();
 
         // Commit transaction
-        tx.commit().await.map_err(|e| {
-            DataError::Query(format!("Failed to commit transaction: {}", e))
-        })?;
+        tx.commit()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to commit transaction: {}", e)))?;
 
         let elapsed = start.elapsed();
 
@@ -1008,9 +1047,10 @@ impl DatabaseAdapter for SqliteAdapter {
         let start = std::time::Instant::now();
 
         // Wrap in transaction for performance
-        let mut tx = pool.begin().await.map_err(|e| {
-            DataError::Query(format!("Failed to begin transaction: {}", e))
-        })?;
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to begin transaction: {}", e)))?;
 
         let mut total_affected = 0u64;
 
@@ -1049,20 +1089,17 @@ impl DatabaseAdapter for SqliteAdapter {
                 };
             }
 
-            let result = query_builder
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| {
-                    DataError::Query(format!("Failed to bulk update {}: {}", table_name, e))
-                })?;
+            let result = query_builder.execute(&mut *tx).await.map_err(|e| {
+                DataError::Query(format!("Failed to bulk update {}: {}", table_name, e))
+            })?;
 
             total_affected += result.rows_affected();
         }
 
         // Commit transaction
-        tx.commit().await.map_err(|e| {
-            DataError::Query(format!("Failed to commit transaction: {}", e))
-        })?;
+        tx.commit()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to commit transaction: {}", e)))?;
 
         let elapsed = start.elapsed();
 
@@ -1103,9 +1140,10 @@ impl DatabaseAdapter for SqliteAdapter {
         let start = std::time::Instant::now();
 
         // Wrap in transaction for performance
-        let mut tx = pool.begin().await.map_err(|e| {
-            DataError::Query(format!("Failed to begin transaction: {}", e))
-        })?;
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to begin transaction: {}", e)))?;
 
         let mut total_affected = 0u64;
 
@@ -1119,20 +1157,17 @@ impl DatabaseAdapter for SqliteAdapter {
 
             debug!("Bulk delete query: {}", query);
 
-            let result = sqlx::query(&query)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| {
-                    DataError::Query(format!("Failed to bulk delete from {}: {}", table_name, e))
-                })?;
+            let result = sqlx::query(&query).execute(&mut *tx).await.map_err(|e| {
+                DataError::Query(format!("Failed to bulk delete from {}: {}", table_name, e))
+            })?;
 
             total_affected += result.rows_affected();
         }
 
         // Commit transaction
-        tx.commit().await.map_err(|e| {
-            DataError::Query(format!("Failed to commit transaction: {}", e))
-        })?;
+        tx.commit()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to commit transaction: {}", e)))?;
 
         let elapsed = start.elapsed();
 
@@ -1272,7 +1307,10 @@ mod tests {
 
         adapter.connect(&config, None).await.unwrap();
 
-        let result = adapter.execute_query("SELECT 1 as num, 'hello' as text").await.unwrap();
+        let result = adapter
+            .execute_query("SELECT 1 as num, 'hello' as text")
+            .await
+            .unwrap();
         assert_eq!(result.columns, vec!["num", "text"]);
         assert_eq!(result.rows.len(), 1);
         assert_eq!(result.rows_affected, Some(1));
@@ -1317,7 +1355,9 @@ mod tests {
 
         // Create a test table
         adapter
-            .execute_query("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, age INTEGER)")
+            .execute_query(
+                "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, age INTEGER)",
+            )
             .await
             .unwrap();
 
@@ -1450,9 +1490,7 @@ mod tests {
             vec![QueryValue::Int(2), QueryValue::Text("Bob".to_string())],
         ];
 
-        let result = adapter
-            .bulk_insert("users", &columns, &rows, None)
-            .await;
+        let result = adapter.bulk_insert("users", &columns, &rows, None).await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), DataError::Connection(_)));
     }

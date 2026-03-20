@@ -105,7 +105,10 @@ async fn test_mongodb_execute_query_insert_find() -> Result<()> {
     let collection_name = "test_insert_users";
 
     // Insert documents
-    info!("Inserting test documents into collection: {}", collection_name);
+    info!(
+        "Inserting test documents into collection: {}",
+        collection_name
+    );
     let insert_query = format!(
         r#"{{"collection": "{}", "operation": "insertMany", "documents": [
                 {{"username": "alice", "email": "alice@example.com", "age": 30}},
@@ -123,11 +126,17 @@ async fn test_mongodb_execute_query_insert_find() -> Result<()> {
     let result = adapter.execute_query(&find_query).await?;
 
     assert_eq!(result.rows.len(), 3);
-    debug!("Query results validated: found {} documents", result.rows.len());
+    debug!(
+        "Query results validated: found {} documents",
+        result.rows.len()
+    );
 
     // Cleanup - drop collection
     info!("Cleaning up test collection: {}", collection_name);
-    let drop_query = format!(r#"{{"collection": "{}", "operation": "drop"}}"#, collection_name);
+    let drop_query = format!(
+        r#"{{"collection": "{}", "operation": "drop"}}"#,
+        collection_name
+    );
     adapter.execute_query(&drop_query).await?;
 
     adapter.disconnect().await?;
@@ -167,7 +176,10 @@ async fn test_mongodb_list_tables() -> Result<()> {
 
     info!("Creating test collections");
     for collection in &collections {
-        let create_query = format!(r#"{{"collection": "{}", "operation": "insert", "document": {{"_init": true}}}}"#, collection);
+        let create_query = format!(
+            r#"{{"collection": "{}", "operation": "insert", "document": {{"_init": true}}}}"#,
+            collection
+        );
         adapter.execute_query(&create_query).await?;
     }
     debug!("Test collections created");
@@ -230,7 +242,10 @@ async fn test_mongodb_describe_table() -> Result<()> {
 
     // Cleanup - drop collection
     info!("Cleaning up test collection");
-    let drop_query = format!(r#"{{"collection": "{}", "operation": "drop"}}"#, collection_name);
+    let drop_query = format!(
+        r#"{{"collection": "{}", "operation": "drop"}}"#,
+        collection_name
+    );
     adapter.execute_query(&drop_query).await?;
 
     adapter.disconnect().await?;
@@ -276,14 +291,20 @@ async fn test_mongodb_crud_operations() -> Result<()> {
     debug!("Document updated");
 
     // Verify update
-    let verify_query = format!(r#"{{"collection": "{}", "filter": {{"username": "alice"}}}}"#, collection_name);
+    let verify_query = format!(
+        r#"{{"collection": "{}", "filter": {{"username": "alice"}}}}"#,
+        collection_name
+    );
     let verify_result = adapter.execute_query(&verify_query).await?;
     assert_eq!(verify_result.rows.len(), 1);
     debug!("Update verified");
 
     // DELETE - Delete a document
     info!("Testing DELETE (deleteMany)");
-    let delete_query = format!(r#"{{"collection": "{}", "operation": "delete", "filter": {{"username": "bob"}}}}"#, collection_name);
+    let delete_query = format!(
+        r#"{{"collection": "{}", "operation": "delete", "filter": {{"username": "bob"}}}}"#,
+        collection_name
+    );
     adapter.execute_query(&delete_query).await?;
     debug!("Document deleted");
 
@@ -291,11 +312,17 @@ async fn test_mongodb_crud_operations() -> Result<()> {
     let final_query = format!(r#"{{"collection": "{}", "filter": {{}}}}"#, collection_name);
     let final_result = adapter.execute_query(&final_query).await?;
     assert_eq!(final_result.rows.len(), 1);
-    debug!("Deletion verified: {} document remaining", final_result.rows.len());
+    debug!(
+        "Deletion verified: {} document remaining",
+        final_result.rows.len()
+    );
 
     // Cleanup - drop collection
     info!("Cleaning up test collection");
-    let drop_query = format!(r#"{{"collection": "{}", "operation": "drop"}}"#, collection_name);
+    let drop_query = format!(
+        r#"{{"collection": "{}", "operation": "drop"}}"#,
+        collection_name
+    );
     adapter.execute_query(&drop_query).await?;
 
     adapter.disconnect().await?;
@@ -315,7 +342,11 @@ async fn test_mongodb_get_server_info() -> Result<()> {
 
     assert_eq!(server_info.server_type, "MongoDB");
     assert!(!server_info.version.is_empty());
-    assert!(server_info.version.starts_with("7.") || server_info.version.starts_with("6.") || server_info.version.starts_with("5."));
+    assert!(
+        server_info.version.starts_with("7.")
+            || server_info.version.starts_with("6.")
+            || server_info.version.starts_with("5.")
+    );
     debug!("Server version: {}", server_info.version);
     debug!("Server info: {:?}", server_info.extra_info);
 
@@ -376,7 +407,10 @@ async fn test_mongodb_get_table_metadata() -> Result<()> {
     // Cleanup
     info!("Cleaning up test collection");
     adapter
-        .execute_query(&format!(r#"{{"collection": "{}", "operation": "drop"}}"#, collection_name))
+        .execute_query(&format!(
+            r#"{{"collection": "{}", "operation": "drop"}}"#,
+            collection_name
+        ))
         .await?;
 
     adapter.disconnect().await?;
@@ -424,7 +458,10 @@ async fn test_mongodb_get_indexes() -> Result<()> {
     // Cleanup
     info!("Cleaning up test collection");
     adapter
-        .execute_query(&format!(r#"{{"collection": "{}", "operation": "drop"}}"#, collection_name))
+        .execute_query(&format!(
+            r#"{{"collection": "{}", "operation": "drop"}}"#,
+            collection_name
+        ))
         .await?;
 
     adapter.disconnect().await?;
@@ -484,24 +521,42 @@ async fn test_mongodb_get_views() -> Result<()> {
 
     // Verify the view we created exists
     let test_view = views.iter().find(|v| v.name == view_name);
-    assert!(test_view.is_some(), "Created view '{}' should exist in views list", view_name);
+    assert!(
+        test_view.is_some(),
+        "Created view '{}' should exist in views list",
+        view_name
+    );
     debug!("Found {} views", views.len());
 
     // Get view definition
     info!("Testing get_view_definition");
     let definition = adapter.get_view_definition(view_name, None).await?;
-    assert!(definition.is_some(), "View definition should exist for '{}'", view_name);
+    assert!(
+        definition.is_some(),
+        "View definition should exist for '{}'",
+        view_name
+    );
     let def = definition.unwrap();
-    assert!(def.contains(collection_name), "View definition should reference source collection '{}'", collection_name);
+    assert!(
+        def.contains(collection_name),
+        "View definition should reference source collection '{}'",
+        collection_name
+    );
     debug!("View definition: {}", def);
 
     // Cleanup
     info!("Cleaning up test view and collection");
     adapter
-        .execute_query(&format!(r#"{{"collection": "{}", "operation": "drop"}}"#, view_name))
+        .execute_query(&format!(
+            r#"{{"collection": "{}", "operation": "drop"}}"#,
+            view_name
+        ))
         .await?;
     adapter
-        .execute_query(&format!(r#"{{"collection": "{}", "operation": "drop"}}"#, collection_name))
+        .execute_query(&format!(
+            r#"{{"collection": "{}", "operation": "drop"}}"#,
+            collection_name
+        ))
         .await?;
 
     adapter.disconnect().await?;
@@ -600,9 +655,7 @@ async fn test_mongodb_bulk_insert() -> Result<()> {
 
     // Cleanup
     info!("Cleaning up test collection");
-    adapter
-        .execute_query("db.test_bulk_insert.drop()")
-        .await?;
+    adapter.execute_query("db.test_bulk_insert.drop()").await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_mongodb_bulk_insert");
@@ -638,7 +691,10 @@ async fn test_mongodb_bulk_update() -> Result<()> {
     update1.insert("score".to_string(), QueryValue::Int(100));
 
     let mut update2 = HashMap::new();
-    update2.insert("status".to_string(), QueryValue::Text("completed".to_string()));
+    update2.insert(
+        "status".to_string(),
+        QueryValue::Text("completed".to_string()),
+    );
 
     let updates = vec![
         (update1, "id = 1".to_string()),
@@ -656,9 +712,7 @@ async fn test_mongodb_bulk_update() -> Result<()> {
 
     // Cleanup
     info!("Cleaning up test collection");
-    adapter
-        .execute_query("db.test_bulk_update.drop()")
-        .await?;
+    adapter.execute_query("db.test_bulk_update.drop()").await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_mongodb_bulk_update");
@@ -710,13 +764,14 @@ async fn test_mongodb_bulk_delete() -> Result<()> {
         .await?;
 
     assert_eq!(result.rows.len(), 3);
-    debug!("Delete verification successful: {} rows remain", result.rows.len());
+    debug!(
+        "Delete verification successful: {} rows remain",
+        result.rows.len()
+    );
 
     // Cleanup
     info!("Cleaning up test collection");
-    adapter
-        .execute_query("db.test_bulk_delete.drop()")
-        .await?;
+    adapter.execute_query("db.test_bulk_delete.drop()").await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_mongodb_bulk_delete");
@@ -767,9 +822,7 @@ async fn test_mongodb_bulk_insert_large_batch() -> Result<()> {
 
     // Cleanup
     info!("Cleaning up test collection");
-    adapter
-        .execute_query("db.test_bulk_large.drop()")
-        .await?;
+    adapter.execute_query("db.test_bulk_large.drop()").await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_mongodb_bulk_insert_large_batch");

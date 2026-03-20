@@ -1,7 +1,6 @@
 /// Basic console logging example
 ///
 /// Run with: cargo run --example console_basic
-
 use rusty_logging;
 use tracing::{debug, error, info, warn};
 

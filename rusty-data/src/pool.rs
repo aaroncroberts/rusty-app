@@ -2,7 +2,6 @@
 ///
 /// This module provides connection pooling abstractions to support
 /// adapters that require mutable access to their clients.
-
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use tokio::sync::{Mutex, MutexGuard};

@@ -48,17 +48,21 @@ async fn ensure_test_database() -> Result<()> {
     info!("Creating MSSQL test database: {}", TEST_DB_NAME);
 
     // Try to set database to single user mode and drop it (ignore errors if it doesn't exist)
-    let _ = adapter.execute_query(&format!(
-        "IF EXISTS (SELECT name FROM sys.databases WHERE name = '{}')
+    let _ = adapter
+        .execute_query(&format!(
+            "IF EXISTS (SELECT name FROM sys.databases WHERE name = '{}')
          BEGIN
              ALTER DATABASE {} SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
              DROP DATABASE {};
          END",
-        TEST_DB_NAME, TEST_DB_NAME, TEST_DB_NAME
-    )).await;
+            TEST_DB_NAME, TEST_DB_NAME, TEST_DB_NAME
+        ))
+        .await;
 
     // Create the database
-    adapter.execute_query(&format!("CREATE DATABASE {}", TEST_DB_NAME)).await?;
+    adapter
+        .execute_query(&format!("CREATE DATABASE {}", TEST_DB_NAME))
+        .await?;
 
     adapter.disconnect().await?;
     debug!("MSSQL test database ready: {}", TEST_DB_NAME);
@@ -111,7 +115,9 @@ async fn test_mssql_execute_query() -> Result<()> {
 
     // Create test table
     info!("Creating test table");
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE test_query_users (
             id INT IDENTITY(1,1) PRIMARY KEY,
             username NVARCHAR(50),
@@ -119,20 +125,28 @@ async fn test_mssql_execute_query() -> Result<()> {
             created_at DATETIME DEFAULT GETDATE(),
             is_active BIT DEFAULT 1
         )
-    ").await?;
+    ",
+        )
+        .await?;
 
     // Insert test data
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         INSERT INTO test_query_users (username, email) VALUES
         ('alice', 'alice@example.com'),
         ('bob', 'bob@example.com'),
         ('charlie', 'charlie@example.com')
-    ").await?;
+    ",
+        )
+        .await?;
     debug!("Test data inserted");
 
     // Query test data
     info!("Testing execute_query");
-    let result = adapter.execute_query("SELECT * FROM test_query_users ORDER BY id").await?;
+    let result = adapter
+        .execute_query("SELECT * FROM test_query_users ORDER BY id")
+        .await?;
 
     assert_eq!(result.columns.len(), 5);
     assert_eq!(result.rows.len(), 3);
@@ -176,9 +190,15 @@ async fn test_mssql_list_tables() -> Result<()> {
 
     // Create test tables
     info!("Creating test tables");
-    adapter.execute_query("CREATE TABLE test_list_users (id INT IDENTITY(1,1) PRIMARY KEY)").await?;
-    adapter.execute_query("CREATE TABLE test_list_products (id INT IDENTITY(1,1) PRIMARY KEY)").await?;
-    adapter.execute_query("CREATE TABLE test_list_orders (id INT IDENTITY(1,1) PRIMARY KEY)").await?;
+    adapter
+        .execute_query("CREATE TABLE test_list_users (id INT IDENTITY(1,1) PRIMARY KEY)")
+        .await?;
+    adapter
+        .execute_query("CREATE TABLE test_list_products (id INT IDENTITY(1,1) PRIMARY KEY)")
+        .await?;
+    adapter
+        .execute_query("CREATE TABLE test_list_orders (id INT IDENTITY(1,1) PRIMARY KEY)")
+        .await?;
     debug!("Test tables created");
 
     // List tables
@@ -193,7 +213,9 @@ async fn test_mssql_list_tables() -> Result<()> {
     // Cleanup
     info!("Cleaning up test tables");
     adapter.execute_query("DROP TABLE test_list_users").await?;
-    adapter.execute_query("DROP TABLE test_list_products").await?;
+    adapter
+        .execute_query("DROP TABLE test_list_products")
+        .await?;
     adapter.execute_query("DROP TABLE test_list_orders").await?;
 
     adapter.disconnect().await?;
@@ -210,13 +232,17 @@ async fn test_mssql_describe_table() -> Result<()> {
 
     // Create test table
     info!("Creating test table");
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE test_describe_table (
             id INT IDENTITY(1,1) PRIMARY KEY,
             username NVARCHAR(50) NOT NULL,
             email NVARCHAR(100)
         )
-    ").await?;
+    ",
+        )
+        .await?;
     debug!("Test table created");
 
     // Describe table
@@ -230,14 +256,20 @@ async fn test_mssql_describe_table() -> Result<()> {
     let id_col = table_info.columns.iter().find(|c| c.name == "id").unwrap();
     assert!(id_col.is_primary_key);
 
-    let username_col = table_info.columns.iter().find(|c| c.name == "username").unwrap();
+    let username_col = table_info
+        .columns
+        .iter()
+        .find(|c| c.name == "username")
+        .unwrap();
     assert!(!username_col.nullable);
 
     debug!("Table schema validated");
 
     // Cleanup
     info!("Cleaning up test table");
-    adapter.execute_query("DROP TABLE test_describe_table").await?;
+    adapter
+        .execute_query("DROP TABLE test_describe_table")
+        .await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_mssql_describe_table");
@@ -253,54 +285,79 @@ async fn test_mssql_crud_operations() -> Result<()> {
 
     // CREATE table and INSERT data
     info!("Creating test table");
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE test_crud_users (
             id INT IDENTITY(1,1) PRIMARY KEY,
             username NVARCHAR(50) NOT NULL,
             email NVARCHAR(100),
             status NVARCHAR(20) DEFAULT 'active'
         )
-    ").await?;
+    ",
+        )
+        .await?;
 
     info!("Testing INSERT");
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         INSERT INTO test_crud_users (username, email) VALUES
         ('alice', 'alice@example.com'),
         ('bob', 'bob@example.com')
-    ").await?;
+    ",
+        )
+        .await?;
     debug!("Rows inserted");
 
     // READ
     info!("Testing SELECT");
-    let result = adapter.execute_query("SELECT * FROM test_crud_users ORDER BY id").await?;
+    let result = adapter
+        .execute_query("SELECT * FROM test_crud_users ORDER BY id")
+        .await?;
     assert_eq!(result.rows.len(), 2);
     debug!("Found {} rows", result.rows.len());
 
     // UPDATE
     info!("Testing UPDATE");
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         UPDATE test_crud_users
         SET status = 'inactive'
         WHERE username = 'alice'
-    ").await?;
+    ",
+        )
+        .await?;
     debug!("Row updated");
 
     // Verify update
-    let verify_result = adapter.execute_query("
+    let verify_result = adapter
+        .execute_query(
+            "
         SELECT status FROM test_crud_users WHERE username = 'alice'
-    ").await?;
+    ",
+        )
+        .await?;
     assert_eq!(verify_result.rows.len(), 1);
     debug!("Update verified");
 
     // DELETE
     info!("Testing DELETE");
-    adapter.execute_query("DELETE FROM test_crud_users WHERE username = 'bob'").await?;
+    adapter
+        .execute_query("DELETE FROM test_crud_users WHERE username = 'bob'")
+        .await?;
     debug!("Row deleted");
 
     // Verify deletion
-    let final_result = adapter.execute_query("SELECT * FROM test_crud_users").await?;
+    let final_result = adapter
+        .execute_query("SELECT * FROM test_crud_users")
+        .await?;
     assert_eq!(final_result.rows.len(), 1);
-    debug!("Deletion verified: {} row remaining", final_result.rows.len());
+    debug!(
+        "Deletion verified: {} row remaining",
+        final_result.rows.len()
+    );
 
     // Cleanup
     info!("Cleaning up test table");
@@ -344,7 +401,10 @@ async fn test_mssql_get_database_metadata() -> Result<()> {
     assert_eq!(db_meta.name, TEST_DB_NAME);
     assert!(db_meta.size_bytes.is_some());
     debug!("Database size: {:?} bytes", db_meta.size_bytes);
-    debug!("Recovery model: {:?}", db_meta.extra_info.get("recovery_model"));
+    debug!(
+        "Recovery model: {:?}",
+        db_meta.extra_info.get("recovery_model")
+    );
 
     adapter.disconnect().await?;
     info!("Test completed: test_mssql_get_database_metadata");
@@ -418,10 +478,7 @@ async fn test_mssql_get_indexes() -> Result<()> {
         .await?;
 
     adapter
-        .execute_query(&format!(
-            "CREATE INDEX idx_name ON {}(name)",
-            table_name
-        ))
+        .execute_query(&format!("CREATE INDEX idx_name ON {}(name)", table_name))
         .await?;
 
     // Get indexes
@@ -579,7 +636,10 @@ async fn test_mssql_list_stored_procedures() -> Result<()> {
     assert!(test_proc.is_some());
     let proc = test_proc.unwrap();
     assert_eq!(proc.language, Some("T-SQL".to_string()));
-    debug!("Found procedure: {} (language: {:?})", proc.name, proc.language);
+    debug!(
+        "Found procedure: {} (language: {:?})",
+        proc.name, proc.language
+    );
 
     // Cleanup
     adapter
@@ -597,26 +657,30 @@ async fn test_mssql_bulk_insert() -> Result<()> {
     info!("=== Starting test: test_mssql_bulk_insert ===");
     let test_start = std::time::Instant::now();
 
-    let mut adapter = setup().await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to setup adapter");
-            e
-        })?;
+    let mut adapter = setup().await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to setup adapter");
+        e
+    })?;
     debug!("Adapter setup completed in {:?}", test_start.elapsed());
 
     // Create test table with detailed logging
     info!("Creating test table: test_bulk_insert");
     let create_start = std::time::Instant::now();
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE test_bulk_insert (
             id INT PRIMARY KEY,
             name NVARCHAR(100),
             value INT
         )
-    ").await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to create test table");
-        e
-    })?;
+    ",
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to create test table");
+            e
+        })?;
     debug!("Table created in {:?}", create_start.elapsed());
 
     // Prepare bulk insert data with logging
@@ -639,13 +703,18 @@ async fn test_mssql_bulk_insert() -> Result<()> {
             QueryValue::Int(300),
         ],
     ];
-    info!("Prepared {} rows for bulk insert with {} columns", rows.len(), columns.len());
+    info!(
+        "Prepared {} rows for bulk insert with {} columns",
+        rows.len(),
+        columns.len()
+    );
     debug!("Columns: {:?}", columns);
 
     // Execute bulk insert with timing
     info!("Executing bulk_insert operation");
     let insert_start = std::time::Instant::now();
-    let rows_inserted = adapter.bulk_insert("test_bulk_insert", &columns, &rows, Some("dbo"))
+    let rows_inserted = adapter
+        .bulk_insert("test_bulk_insert", &columns, &rows, Some("dbo"))
         .await
         .map_err(|e| {
             tracing::error!(
@@ -666,21 +735,37 @@ async fn test_mssql_bulk_insert() -> Result<()> {
         rows_inserted as f64 / insert_duration.as_secs_f64()
     );
 
-    assert_eq!(rows_inserted, 3, "Expected 3 rows inserted, got {}", rows_inserted);
+    assert_eq!(
+        rows_inserted, 3,
+        "Expected 3 rows inserted, got {}",
+        rows_inserted
+    );
 
     // Verify data was inserted with detailed checking
     info!("Verifying inserted data");
     let verify_start = std::time::Instant::now();
-    let result = adapter.execute_query("SELECT * FROM test_bulk_insert ORDER BY id")
+    let result = adapter
+        .execute_query("SELECT * FROM test_bulk_insert ORDER BY id")
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to verify inserted data");
             e
         })?;
-    debug!("Verification query completed in {:?}", verify_start.elapsed());
+    debug!(
+        "Verification query completed in {:?}",
+        verify_start.elapsed()
+    );
 
-    assert_eq!(result.rows.len(), 3, "Expected 3 rows in result, got {}", result.rows.len());
-    info!("✓ Data verification successful: {} rows found", result.rows.len());
+    assert_eq!(
+        result.rows.len(),
+        3,
+        "Expected 3 rows in result, got {}",
+        result.rows.len()
+    );
+    info!(
+        "✓ Data verification successful: {} rows found",
+        result.rows.len()
+    );
 
     // Log sample of inserted data
     for (idx, row) in result.rows.iter().take(3).enumerate() {
@@ -703,7 +788,10 @@ async fn test_mssql_bulk_insert() -> Result<()> {
     })?;
 
     let total_duration = test_start.elapsed();
-    info!("=== Test completed: test_mssql_bulk_insert in {:?} ===", total_duration);
+    info!(
+        "=== Test completed: test_mssql_bulk_insert in {:?} ===",
+        total_duration
+    );
     Ok(())
 }
 
@@ -713,40 +801,49 @@ async fn test_mssql_bulk_update() -> Result<()> {
     info!("=== Starting test: test_mssql_bulk_update ===");
     let test_start = std::time::Instant::now();
 
-    let mut adapter = setup().await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to setup adapter");
-            e
-        })?;
+    let mut adapter = setup().await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to setup adapter");
+        e
+    })?;
     debug!("Adapter setup completed in {:?}", test_start.elapsed());
 
     // Create test table with logging
     info!("Creating test table: test_bulk_update");
     let create_start = std::time::Instant::now();
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE test_bulk_update (
             id INT PRIMARY KEY,
             name NVARCHAR(100),
             status NVARCHAR(50)
         )
-    ").await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to create test table");
-        e
-    })?;
+    ",
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to create test table");
+            e
+        })?;
     debug!("Table created in {:?}", create_start.elapsed());
 
     // Insert initial test data
     info!("Inserting initial test data (3 rows)");
     let insert_start = std::time::Instant::now();
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         INSERT INTO test_bulk_update (id, name, status) VALUES
         (1, 'Alice', 'active'),
         (2, 'Bob', 'active'),
         (3, 'Charlie', 'active')
-    ").await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to insert initial test data");
-        e
-    })?;
+    ",
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to insert initial test data");
+            e
+        })?;
     debug!("Initial data inserted in {:?}", insert_start.elapsed());
 
     // Prepare bulk update operations with logging
@@ -754,10 +851,16 @@ async fn test_mssql_bulk_update() -> Result<()> {
     use std::collections::HashMap;
 
     let mut update1 = HashMap::new();
-    update1.insert("status".to_string(), QueryValue::Text("inactive".to_string()));
+    update1.insert(
+        "status".to_string(),
+        QueryValue::Text("inactive".to_string()),
+    );
 
     let mut update2 = HashMap::new();
-    update2.insert("status".to_string(), QueryValue::Text("suspended".to_string()));
+    update2.insert(
+        "status".to_string(),
+        QueryValue::Text("suspended".to_string()),
+    );
 
     let updates = vec![
         (update1, "id = 1".to_string()),
@@ -765,12 +868,16 @@ async fn test_mssql_bulk_update() -> Result<()> {
     ];
 
     info!("Prepared {} update operations", updates.len());
-    debug!("Update operations: {} updates with conditions", updates.len());
+    debug!(
+        "Update operations: {} updates with conditions",
+        updates.len()
+    );
 
     // Execute bulk update with timing
     info!("Executing bulk_update operation");
     let update_start = std::time::Instant::now();
-    let rows_updated = adapter.bulk_update("test_bulk_update", &updates, Some("dbo"))
+    let rows_updated = adapter
+        .bulk_update("test_bulk_update", &updates, Some("dbo"))
         .await
         .map_err(|e| {
             tracing::error!(
@@ -786,25 +893,42 @@ async fn test_mssql_bulk_update() -> Result<()> {
 
     info!(
         "Bulk update completed: {} rows in {:?}",
-        rows_updated,
-        update_duration
+        rows_updated, update_duration
     );
 
-    assert!(rows_updated >= 2, "Expected at least 2 rows updated, got {}", rows_updated);
+    assert!(
+        rows_updated >= 2,
+        "Expected at least 2 rows updated, got {}",
+        rows_updated
+    );
 
     // Verify updates with detailed checking
     info!("Verifying updated data");
     let verify_start = std::time::Instant::now();
-    let result = adapter.execute_query("SELECT id, name, status FROM test_bulk_update WHERE status != 'active' ORDER BY id")
+    let result = adapter
+        .execute_query(
+            "SELECT id, name, status FROM test_bulk_update WHERE status != 'active' ORDER BY id",
+        )
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to verify updated data");
             e
         })?;
-    debug!("Verification query completed in {:?}", verify_start.elapsed());
+    debug!(
+        "Verification query completed in {:?}",
+        verify_start.elapsed()
+    );
 
-    assert_eq!(result.rows.len(), 2, "Expected 2 updated rows in result, got {}", result.rows.len());
-    info!("✓ Update verification successful: {} rows updated as expected", result.rows.len());
+    assert_eq!(
+        result.rows.len(),
+        2,
+        "Expected 2 updated rows in result, got {}",
+        result.rows.len()
+    );
+    info!(
+        "✓ Update verification successful: {} rows updated as expected",
+        result.rows.len()
+    );
 
     // Log updated rows
     for (idx, row) in result.rows.iter().enumerate() {
@@ -826,7 +950,10 @@ async fn test_mssql_bulk_update() -> Result<()> {
     })?;
 
     let total_duration = test_start.elapsed();
-    info!("=== Test completed: test_mssql_bulk_update in {:?} ===", total_duration);
+    info!(
+        "=== Test completed: test_mssql_bulk_update in {:?} ===",
+        total_duration
+    );
     Ok(())
 }
 
@@ -836,41 +963,50 @@ async fn test_mssql_bulk_delete() -> Result<()> {
     info!("=== Starting test: test_mssql_bulk_delete ===");
     let test_start = std::time::Instant::now();
 
-    let mut adapter = setup().await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to setup adapter");
-            e
-        })?;
+    let mut adapter = setup().await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to setup adapter");
+        e
+    })?;
     debug!("Adapter setup completed in {:?}", test_start.elapsed());
 
     // Create test table with logging
     info!("Creating test table: test_bulk_delete");
     let create_start = std::time::Instant::now();
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE test_bulk_delete (
             id INT PRIMARY KEY,
             name NVARCHAR(100)
         )
-    ").await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to create test table");
-        e
-    })?;
+    ",
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to create test table");
+            e
+        })?;
     debug!("Table created in {:?}", create_start.elapsed());
 
     // Insert initial test data
     info!("Inserting initial test data (5 rows)");
     let insert_start = std::time::Instant::now();
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         INSERT INTO test_bulk_delete (id, name) VALUES
         (1, 'Alice'),
         (2, 'Bob'),
         (3, 'Charlie'),
         (4, 'David'),
         (5, 'Eve')
-    ").await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to insert initial test data");
-        e
-    })?;
+    ",
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to insert initial test data");
+            e
+        })?;
     debug!("Initial data inserted in {:?}", insert_start.elapsed());
 
     // Prepare bulk delete with logging
@@ -886,7 +1022,8 @@ async fn test_mssql_bulk_delete() -> Result<()> {
     // Execute bulk delete with timing
     info!("Executing bulk_delete operation");
     let delete_start = std::time::Instant::now();
-    let rows_deleted = adapter.bulk_delete("test_bulk_delete", &where_clauses, Some("dbo"))
+    let rows_deleted = adapter
+        .bulk_delete("test_bulk_delete", &where_clauses, Some("dbo"))
         .await
         .map_err(|e| {
             tracing::error!(
@@ -902,25 +1039,40 @@ async fn test_mssql_bulk_delete() -> Result<()> {
 
     info!(
         "Bulk delete completed: {} rows in {:?}",
-        rows_deleted,
-        delete_duration
+        rows_deleted, delete_duration
     );
 
-    assert_eq!(rows_deleted, 3, "Expected 3 rows deleted, got {}", rows_deleted);
+    assert_eq!(
+        rows_deleted, 3,
+        "Expected 3 rows deleted, got {}",
+        rows_deleted
+    );
 
     // Verify deletions with detailed checking
     info!("Verifying remaining data after delete");
     let verify_start = std::time::Instant::now();
-    let result = adapter.execute_query("SELECT id, name FROM test_bulk_delete ORDER BY id")
+    let result = adapter
+        .execute_query("SELECT id, name FROM test_bulk_delete ORDER BY id")
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to verify remaining data");
             e
         })?;
-    debug!("Verification query completed in {:?}", verify_start.elapsed());
+    debug!(
+        "Verification query completed in {:?}",
+        verify_start.elapsed()
+    );
 
-    assert_eq!(result.rows.len(), 2, "Expected 2 remaining rows, got {}", result.rows.len());
-    info!("✓ Delete verification successful: {} rows remaining", result.rows.len());
+    assert_eq!(
+        result.rows.len(),
+        2,
+        "Expected 2 remaining rows, got {}",
+        result.rows.len()
+    );
+    info!(
+        "✓ Delete verification successful: {} rows remaining",
+        result.rows.len()
+    );
 
     // Log remaining rows
     for (idx, row) in result.rows.iter().enumerate() {
@@ -942,7 +1094,10 @@ async fn test_mssql_bulk_delete() -> Result<()> {
     })?;
 
     let total_duration = test_start.elapsed();
-    info!("=== Test completed: test_mssql_bulk_delete in {:?} ===", total_duration);
+    info!(
+        "=== Test completed: test_mssql_bulk_delete in {:?} ===",
+        total_duration
+    );
     Ok(())
 }
 
@@ -952,25 +1107,29 @@ async fn test_mssql_bulk_insert_large_batch() -> Result<()> {
     info!("=== Starting test: test_mssql_bulk_insert_large_batch ===");
     let test_start = std::time::Instant::now();
 
-    let mut adapter = setup().await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to setup adapter");
-            e
-        })?;
+    let mut adapter = setup().await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to setup adapter");
+        e
+    })?;
     debug!("Adapter setup completed in {:?}", test_start.elapsed());
 
     // Create test table with logging
     info!("Creating test table: test_bulk_large");
     let create_start = std::time::Instant::now();
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE test_bulk_large (
             id INT PRIMARY KEY,
             value INT
         )
-    ").await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to create test table");
-        e
-    })?;
+    ",
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to create test table");
+            e
+        })?;
     debug!("Table created in {:?}", create_start.elapsed());
 
     // Prepare large batch (1000 rows) with logging
@@ -979,17 +1138,18 @@ async fn test_mssql_bulk_insert_large_batch() -> Result<()> {
     let mut rows = Vec::new();
     let prep_start = std::time::Instant::now();
     for i in 1..=1000 {
-        rows.push(vec![
-            QueryValue::Int(i),
-            QueryValue::Int(i * 10),
-        ]);
+        rows.push(vec![QueryValue::Int(i), QueryValue::Int(i * 10)]);
     }
     debug!("Prepared {} rows in {:?}", rows.len(), prep_start.elapsed());
 
     // Execute bulk insert with detailed timing
-    info!("Executing bulk_insert with {} rows (performance test)", rows.len());
+    info!(
+        "Executing bulk_insert with {} rows (performance test)",
+        rows.len()
+    );
     let insert_start = std::time::Instant::now();
-    let rows_inserted = adapter.bulk_insert("test_bulk_large", &columns, &rows, Some("dbo"))
+    let rows_inserted = adapter
+        .bulk_insert("test_bulk_large", &columns, &rows, Some("dbo"))
         .await
         .map_err(|e| {
             tracing::error!(
@@ -1012,28 +1172,47 @@ async fn test_mssql_bulk_insert_large_batch() -> Result<()> {
         insert_duration.as_millis() as f64 / rows_inserted as f64
     );
 
-    assert_eq!(rows_inserted, 1000, "Expected 1000 rows inserted, got {}", rows_inserted);
+    assert_eq!(
+        rows_inserted, 1000,
+        "Expected 1000 rows inserted, got {}",
+        rows_inserted
+    );
 
     // Verify count with detailed logging
     info!("Verifying row count");
     let verify_start = std::time::Instant::now();
-    let result = adapter.execute_query("SELECT COUNT(*) as cnt FROM test_bulk_large")
+    let result = adapter
+        .execute_query("SELECT COUNT(*) as cnt FROM test_bulk_large")
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to verify row count");
             e
         })?;
-    debug!("Verification query completed in {:?}", verify_start.elapsed());
+    debug!(
+        "Verification query completed in {:?}",
+        verify_start.elapsed()
+    );
 
-    assert_eq!(result.rows.len(), 1, "Expected 1 count row, got {}", result.rows.len());
-    info!("✓ Large batch verification successful: all {} rows inserted", rows_inserted);
+    assert_eq!(
+        result.rows.len(),
+        1,
+        "Expected 1 count row, got {}",
+        result.rows.len()
+    );
+    info!(
+        "✓ Large batch verification successful: all {} rows inserted",
+        rows_inserted
+    );
 
     // Performance summary
     info!("Performance metrics:");
     info!("  - Total rows: {}", rows_inserted);
     info!("  - Insert time: {:?}", insert_duration);
     info!("  - Throughput: {:.2} rows/sec", rows_per_sec);
-    info!("  - Latency: {:.2} ms/row", insert_duration.as_millis() as f64 / rows_inserted as f64);
+    info!(
+        "  - Latency: {:.2} ms/row",
+        insert_duration.as_millis() as f64 / rows_inserted as f64
+    );
 
     // Cleanup with error handling
     info!("Cleaning up test table");
@@ -1050,7 +1229,10 @@ async fn test_mssql_bulk_insert_large_batch() -> Result<()> {
     })?;
 
     let total_duration = test_start.elapsed();
-    info!("=== Test completed: test_mssql_bulk_insert_large_batch in {:?} ===", total_duration);
+    info!(
+        "=== Test completed: test_mssql_bulk_insert_large_batch in {:?} ===",
+        total_duration
+    );
     Ok(())
 }
 
@@ -1065,7 +1247,9 @@ async fn test_zzz_cleanup_mssql_database() -> Result<()> {
     adapter.connect(&master_config, Some(TEST_PASSWORD)).await?;
 
     // Drop the test database
-    adapter.execute_query(&format!("DROP DATABASE IF EXISTS {}", TEST_DB_NAME)).await?;
+    adapter
+        .execute_query(&format!("DROP DATABASE IF EXISTS {}", TEST_DB_NAME))
+        .await?;
 
     adapter.disconnect().await?;
     info!("MSSQL test database cleanup complete");

@@ -1,38 +1,52 @@
-use iced::widget::{column, container, row};
-use iced::{Element, Fill, Subscription, Task, Theme};
 use iced::event::Event;
 use iced::mouse;
+use iced::widget::{column, container, row};
+use iced::{Element, Fill, Subscription, Task, Theme};
 use rusty_app::adapter_selector::{AdapterSelector, AdapterSelectorMessage};
-use rusty_app::components::{ComponentAction, ComponentId, PropertiesComponent, ServerListComponent, TableListComponent};
+use rusty_app::components::{
+    ComponentAction, ComponentId, PropertiesComponent, ServerListComponent, TableListComponent,
+};
 use rusty_app::connection_form::{ConnectionForm, ConnectionFormData, ConnectionFormMessage};
 use rusty_app::connection_manager::{ActiveConnection, ConnectionManager};
-use rusty_app::container::ContainerManager;
 use rusty_app::container::converter::sync_connections_with_containers;
+use rusty_app::container::ContainerManager;
 use rusty_app::left_panel::{self, LeftPanel};
 use rusty_app::main_panel::{MainPanel, TabId};
-use rusty_app::menu_bar::{MenuBar, MenuAction, MenuItem};
-use rusty_app::mongodb_connection_form::{MongoDBConnectionForm, MongoDBConnectionFormData, MongoDBConnectionFormMessage};
-use rusty_app::mysql_connection_form::{MySQLConnectionForm, MySQLConnectionFormData, MySQLConnectionFormMessage};
-use rusty_app::oracle_connection_form::{OracleConnectionForm, OracleConnectionFormData, OracleConnectionFormMessage};
-use rusty_app::postgres_connection_form::{PostgresConnectionForm, PostgresConnectionFormData, PostgresConnectionFormMessage};
+use rusty_app::menu_bar::{MenuAction, MenuBar, MenuItem};
+use rusty_app::mongodb_connection_form::{
+    MongoDBConnectionForm, MongoDBConnectionFormData, MongoDBConnectionFormMessage,
+};
+use rusty_app::mysql_connection_form::{
+    MySQLConnectionForm, MySQLConnectionFormData, MySQLConnectionFormMessage,
+};
+use rusty_app::oracle_connection_form::{
+    OracleConnectionForm, OracleConnectionFormData, OracleConnectionFormMessage,
+};
+use rusty_app::postgres_connection_form::{
+    PostgresConnectionForm, PostgresConnectionFormData, PostgresConnectionFormMessage,
+};
 use rusty_app::query_editor::QueryEditorMessage;
 use rusty_app::settings::{logging::build_logging_config, SettingsManager};
 use rusty_app::settings_editor::{SettingsEditor, SettingsEditorData, SettingsEditorMessage};
-use rusty_app::sqlite_connection_form::{SQLiteConnectionForm, SQLiteConnectionFormData, SQLiteConnectionFormMessage};
-use rusty_app::sqlserver_connection_form::{SQLServerConnectionForm, SQLServerConnectionFormData, SQLServerConnectionFormMessage};
+use rusty_app::sqlite_connection_form::{
+    SQLiteConnectionForm, SQLiteConnectionFormData, SQLiteConnectionFormMessage,
+};
+use rusty_app::sqlserver_connection_form::{
+    SQLServerConnectionForm, SQLServerConnectionFormData, SQLServerConnectionFormMessage,
+};
 use rusty_app::status_bar::{ConnectionStatus, StatusBar};
 use rusty_app::theme::ThemeColors;
 use rusty_app::views::{RegionId, ViewRegistry};
-use rusty_data::adapter::{ConnectionConfig, DatabaseType};
-use rusty_data::config::ConfigManager;
-use rusty_data::QueryResult;
+use arni::{ConnectionConfig, DatabaseType};
+
+use arni::QueryResult;
 use std::collections::HashMap;
 use tracing::{info, warn};
 
 pub fn main() -> iced::Result {
     // Load settings and configure logging
-    let settings_manager = SettingsManager::new("~/.rusty-app")
-        .expect("Failed to initialize settings manager");
+    let settings_manager =
+        SettingsManager::new("~/.rusty-app").expect("Failed to initialize settings manager");
 
     let logging_config = build_logging_config(&settings_manager.settings().logging)
         .expect("Invalid logging configuration");
@@ -62,7 +76,6 @@ struct DatabaseIDE {
     is_resizing: bool,
     last_mouse_x: Option<f32>,
     connection_status: ConnectionStatus,
-    config_manager: ConfigManager,
     container_manager: ContainerManager,
     settings_manager: SettingsManager,
     saved_connections: Vec<ConnectionConfig>,
@@ -118,8 +131,8 @@ struct DatabaseIDE {
 impl Default for DatabaseIDE {
     fn default() -> Self {
         // Initialize SettingsManager
-        let mut settings_manager = SettingsManager::new("~/.rusty-app")
-            .expect("Failed to initialize settings manager");
+        let mut settings_manager =
+            SettingsManager::new("~/.rusty-app").expect("Failed to initialize settings manager");
 
         // Load UI preferences from settings (clone to avoid borrow issues)
         let ui_prefs = settings_manager.settings().ui_preferences.clone();
@@ -139,45 +152,16 @@ impl Default for DatabaseIDE {
         // Create an initial tab
         main_panel.add_tab("Query 1".to_string());
 
-        // Initialize ConfigManager (kept for validation methods)
-        let config_manager = ConfigManager::new("~/.rusty-app")
-            .expect("Failed to initialize config manager");
-
-        // Migrate connections from connections.toml to settings.toml if needed
-        let connections_file = config_manager.connections_file();
-        if connections_file.exists() && settings_manager.settings().connections.is_empty() {
-            info!("Migrating connections from connections.toml to settings.toml");
-            match config_manager.load_connections() {
-                Ok(old_connections) => {
-                    if !old_connections.is_empty() {
-                        // Save to settings.toml
-                        settings_manager.settings_mut().connections = old_connections.clone();
-                        if let Err(e) = settings_manager.save() {
-                            warn!("Failed to save migrated connections: {}", e);
-                        } else {
-                            info!(count = old_connections.len(), "Migrated connections to settings.toml");
-                            // Delete old connections.toml after successful migration
-                            if let Err(e) = std::fs::remove_file(&connections_file) {
-                                warn!("Failed to delete old connections.toml: {}", e);
-                            } else {
-                                info!("Removed old connections.toml after migration");
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!("Failed to load connections for migration: {}", e);
-                }
-            }
-        }
-
         // Initialize ContainerManager
         let container_manager = ContainerManager::new("rusty-data");
 
         // Load saved connections from settings.toml
         let mut saved_connections = settings_manager.settings().connections.clone();
 
-        info!(count = saved_connections.len(), "Loaded saved connections from settings");
+        info!(
+            count = saved_connections.len(),
+            "Loaded saved connections from settings"
+        );
 
         // Sync connections with running containers
         if container_manager.is_podman_available() {
@@ -189,16 +173,11 @@ impl Default for DatabaseIDE {
                         .cloned()
                         .collect();
 
-                    info!(
-                        count = running_containers.len(),
-                        "Found running containers"
-                    );
+                    info!(count = running_containers.len(), "Found running containers");
 
                     // Sync connections with container state
-                    saved_connections = sync_connections_with_containers(
-                        &running_containers,
-                        &saved_connections,
-                    );
+                    saved_connections =
+                        sync_connections_with_containers(&running_containers, &saved_connections);
 
                     // Save updated connections to settings.toml
                     settings_manager.settings_mut().connections = saved_connections.clone();
@@ -252,7 +231,6 @@ impl Default for DatabaseIDE {
             is_resizing: false,
             last_mouse_x: None,
             connection_status: ConnectionStatus::default(),
-            config_manager,
             container_manager,
             settings_manager,
             saved_connections,
@@ -361,7 +339,10 @@ impl From<ComponentAction> for Message {
 }
 
 /// Test database connection for adapter-specific forms
-async fn test_connection_from_form(config: ConnectionConfig, password: Option<String>) -> Result<(), String> {
+async fn test_connection_from_form(
+    config: ConnectionConfig,
+    password: Option<String>,
+) -> Result<(), String> {
     use std::time::Duration;
     use tokio::time::timeout;
 
@@ -385,59 +366,12 @@ async fn test_connection_from_form(config: ConnectionConfig, password: Option<St
 }
 
 /// Test database connection with appropriate adapter
-async fn test_database_connection(config: ConnectionConfig, password: Option<String>) -> rusty_data::Result<bool> {
-    use rusty_data::adapter::DatabaseAdapter;
-    use rusty_data::adapters;
-
-    let password_ref = password.as_deref();
-
-    match config.db_type {
-        DatabaseType::Postgres => {
-            let adapter = adapters::postgres::PostgresAdapter::new();
-            adapter.test_connection(&config, password_ref).await
-        }
-        DatabaseType::MySQL => {
-            let adapter = adapters::mysql::MySqlAdapter::new();
-            adapter.test_connection(&config, password_ref).await
-        }
-        DatabaseType::SQLite => {
-            let adapter = adapters::sqlite::SqliteAdapter::new();
-            adapter.test_connection(&config, password_ref).await
-        }
-        #[cfg(feature = "mongodb")]
-        DatabaseType::MongoDB => {
-            let adapter = adapters::mongodb::MongoDbAdapter::new();
-            adapter.test_connection(&config, password_ref).await
-        }
-        #[cfg(feature = "mssql")]
-        DatabaseType::SQLServer => {
-            let adapter = adapters::mssql::MssqlAdapter::new();
-            adapter.test_connection(&config, password_ref).await
-        }
-        #[cfg(feature = "oracle")]
-        DatabaseType::Oracle => {
-            let adapter = adapters::oracle::OracleAdapter::new();
-            adapter.test_connection(&config, password_ref).await
-        }
-        #[cfg(not(feature = "mongodb"))]
-        DatabaseType::MongoDB => {
-            Err(rusty_data::error::DataError::Config(
-                "MongoDB support not enabled. Rebuild with --features mongodb".to_string()
-            ))
-        }
-        #[cfg(not(feature = "mssql"))]
-        DatabaseType::SQLServer => {
-            Err(rusty_data::error::DataError::Config(
-                "SQL Server support not enabled. Rebuild with --features mssql".to_string()
-            ))
-        }
-        #[cfg(not(feature = "oracle"))]
-        DatabaseType::Oracle => {
-            Err(rusty_data::error::DataError::Config(
-                "Oracle support not enabled. Rebuild with --features oracle".to_string()
-            ))
-        }
-    }
+async fn test_database_connection(
+    config: ConnectionConfig,
+    password: Option<String>,
+) -> Result<bool, String> {
+    let mut conn = rusty_app::connection_manager::ActiveConnection::new(config, password);
+    conn.connect().await.map(|_| true)
 }
 
 impl DatabaseIDE {
@@ -474,7 +408,8 @@ impl DatabaseIDE {
                             }
                             ViewMenuItem::Settings => {
                                 self.showing_settings_editor = true;
-                                self.settings_editor_data = SettingsEditorData::from_manager(&self.settings_manager);
+                                self.settings_editor_data =
+                                    SettingsEditorData::from_manager(&self.settings_manager);
                                 self.settings_validation_error = None;
                                 self.settings_success_message = None;
                             }
@@ -523,8 +458,7 @@ impl DatabaseIDE {
             }
             Message::NewMainTab => {
                 let tab_count = self.main_panel.tabs().len() + 1;
-                self.main_panel
-                    .add_tab(format!("Query {}", tab_count));
+                self.main_panel.add_tab(format!("Query {}", tab_count));
                 Task::none()
             }
             Message::MainTabClicked(id) => {
@@ -591,7 +525,8 @@ impl DatabaseIDE {
                         self.saved_connections.push(config);
 
                         // Save to settings.toml
-                        self.settings_manager.settings_mut().connections = self.saved_connections.clone();
+                        self.settings_manager.settings_mut().connections =
+                            self.saved_connections.clone();
                         if let Err(e) = self.settings_manager.save() {
                             // TODO: Show error message to user
                             println!("Failed to save connection: {}", e);
@@ -611,7 +546,8 @@ impl DatabaseIDE {
                         Task::none()
                     }
                     ConnectionFormMessage::DbTypeChanged(db_type) => {
-                        self.connection_form_data = self.connection_form_data.clone().with_db_type(db_type);
+                        self.connection_form_data =
+                            self.connection_form_data.clone().with_db_type(db_type);
                         Task::none()
                     }
                     ConnectionFormMessage::HostChanged(host) => {
@@ -668,7 +604,8 @@ impl DatabaseIDE {
             }
             Message::ShowSettings => {
                 self.showing_settings_editor = true;
-                self.settings_editor_data = SettingsEditorData::from_manager(&self.settings_manager);
+                self.settings_editor_data =
+                    SettingsEditorData::from_manager(&self.settings_manager);
                 self.settings_validation_error = None;
                 self.settings_success_message = None;
                 Task::none()
@@ -685,19 +622,13 @@ impl DatabaseIDE {
                         Task::none()
                     }
                     SettingsEditorMessage::ConsoleFilterChanged(value) => {
-                        self.settings_editor_data.logging.console_filter = if value.is_empty() {
-                            None
-                        } else {
-                            Some(value)
-                        };
+                        self.settings_editor_data.logging.console_filter =
+                            if value.is_empty() { None } else { Some(value) };
                         Task::none()
                     }
                     SettingsEditorMessage::FileFilterChanged(value) => {
-                        self.settings_editor_data.logging.file_filter = if value.is_empty() {
-                            None
-                        } else {
-                            Some(value)
-                        };
+                        self.settings_editor_data.logging.file_filter =
+                            if value.is_empty() { None } else { Some(value) };
                         Task::none()
                     }
                     SettingsEditorMessage::ConsoleFormatChanged(format) => {
@@ -709,7 +640,8 @@ impl DatabaseIDE {
                         Task::none()
                     }
                     SettingsEditorMessage::ConsoleEnabledToggled => {
-                        self.settings_editor_data.logging.console_enabled = !self.settings_editor_data.logging.console_enabled;
+                        self.settings_editor_data.logging.console_enabled =
+                            !self.settings_editor_data.logging.console_enabled;
                         Task::none()
                     }
                     SettingsEditorMessage::FileFormatChanged(format) => {
@@ -717,7 +649,8 @@ impl DatabaseIDE {
                         Task::none()
                     }
                     SettingsEditorMessage::FileEnabledToggled => {
-                        self.settings_editor_data.logging.file_enabled = !self.settings_editor_data.logging.file_enabled;
+                        self.settings_editor_data.logging.file_enabled =
+                            !self.settings_editor_data.logging.file_enabled;
                         Task::none()
                     }
                     SettingsEditorMessage::FileDirectoryChanged(value) => {
@@ -745,13 +678,16 @@ impl DatabaseIDE {
                         Task::none()
                     }
                     SettingsEditorMessage::ShowLeftPanelToggled => {
-                        self.settings_editor_data.ui_preferences.show_left_panel = !self.settings_editor_data.ui_preferences.show_left_panel;
+                        self.settings_editor_data.ui_preferences.show_left_panel =
+                            !self.settings_editor_data.ui_preferences.show_left_panel;
                         Task::none()
                     }
                     SettingsEditorMessage::Save => {
                         // Update settings_manager with edited values
-                        self.settings_manager.settings_mut().logging = self.settings_editor_data.logging.clone();
-                        self.settings_manager.settings_mut().ui_preferences = self.settings_editor_data.ui_preferences.clone();
+                        self.settings_manager.settings_mut().logging =
+                            self.settings_editor_data.logging.clone();
+                        self.settings_manager.settings_mut().ui_preferences =
+                            self.settings_editor_data.ui_preferences.clone();
 
                         // Validate settings
                         if let Err(e) = self.settings_manager.validate() {
@@ -768,14 +704,18 @@ impl DatabaseIDE {
                         }
 
                         // Rebuild and apply logging configuration
-                        if let Ok(logging_config) = build_logging_config(&self.settings_manager.settings().logging) {
+                        if let Ok(logging_config) =
+                            build_logging_config(&self.settings_manager.settings().logging)
+                        {
                             if let Err(e) = logging_config.apply() {
-                                self.settings_validation_error = Some(format!("Failed to reload logging: {}", e));
+                                self.settings_validation_error =
+                                    Some(format!("Failed to reload logging: {}", e));
                                 self.settings_success_message = None;
                                 return Task::none();
                             }
                         } else {
-                            self.settings_validation_error = Some("Invalid logging configuration".to_string());
+                            self.settings_validation_error =
+                                Some("Invalid logging configuration".to_string());
                             self.settings_success_message = None;
                             return Task::none();
                         }
@@ -801,7 +741,8 @@ impl DatabaseIDE {
                         self.settings_editor = SettingsEditor::new(new_theme);
 
                         // Show success and close editor
-                        self.settings_success_message = Some("Settings saved successfully".to_string());
+                        self.settings_success_message =
+                            Some("Settings saved successfully".to_string());
                         self.settings_validation_error = None;
                         self.showing_settings_editor = false;
 
@@ -810,17 +751,20 @@ impl DatabaseIDE {
                     SettingsEditorMessage::Reload => {
                         // Reload settings from disk
                         if let Err(e) = self.settings_manager.reload() {
-                            self.settings_validation_error = Some(format!("Failed to reload: {}", e));
+                            self.settings_validation_error =
+                                Some(format!("Failed to reload: {}", e));
                             self.settings_success_message = None;
                             return Task::none();
                         }
 
                         // Reset editor data from reloaded settings
-                        self.settings_editor_data = SettingsEditorData::from_manager(&self.settings_manager);
+                        self.settings_editor_data =
+                            SettingsEditorData::from_manager(&self.settings_manager);
 
                         // Clear errors and show success
                         self.settings_validation_error = None;
-                        self.settings_success_message = Some("Settings reloaded from disk".to_string());
+                        self.settings_success_message =
+                            Some("Settings reloaded from disk".to_string());
 
                         // Keep settings editor open (don't close)
                         Task::none()
@@ -864,6 +808,7 @@ impl DatabaseIDE {
                                     self.oracle_form_data = OracleConnectionFormData::new();
                                     self.oracle_test_result = None;
                                 }
+                                DatabaseType::DuckDB => unreachable!("DuckDB not used in rusty-app"),
                             }
                         }
                         Task::none()
@@ -917,7 +862,13 @@ impl DatabaseIDE {
                         self.postgres_testing = true;
                         self.postgres_test_result = None;
                         let config = ConnectionConfig {
-                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            id: format!(
+                                "conn-{}",
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis()
+                            ),
                             name: self.postgres_form_data.name.clone(),
                             db_type: DatabaseType::Postgres,
                             host: Some(self.postgres_form_data.host.clone()),
@@ -926,6 +877,7 @@ impl DatabaseIDE {
                             username: Some(self.postgres_form_data.username.clone()),
                             use_ssl: false,
                             parameters: HashMap::new(),
+                            pool_config: None,
                         };
                         let password = if self.postgres_form_data.password.is_empty() {
                             None
@@ -934,7 +886,7 @@ impl DatabaseIDE {
                         };
                         Task::perform(
                             test_connection_from_form(config, password),
-                            Message::PostgresTestResult
+                            Message::PostgresTestResult,
                         )
                     }
                     PostgresConnectionFormMessage::Save => {
@@ -946,7 +898,13 @@ impl DatabaseIDE {
 
                         // Create connection config
                         let config = ConnectionConfig {
-                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            id: format!(
+                                "conn-{}",
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis()
+                            ),
                             name: self.postgres_form_data.name.clone(),
                             db_type: DatabaseType::Postgres,
                             host: Some(self.postgres_form_data.host.clone()),
@@ -955,10 +913,14 @@ impl DatabaseIDE {
                             username: Some(self.postgres_form_data.username.clone()),
                             use_ssl: false,
                             parameters: HashMap::new(),
+                            pool_config: None,
                         };
 
                         // Save to settings
-                        self.settings_manager.settings_mut().connections.push(config.clone());
+                        self.settings_manager
+                            .settings_mut()
+                            .connections
+                            .push(config.clone());
                         if let Err(e) = self.settings_manager.save() {
                             warn!("Failed to save connection: {}", e);
                             self.postgres_test_result = Some(Err(format!("Failed to save: {}", e)));
@@ -1022,7 +984,13 @@ impl DatabaseIDE {
                         self.mysql_testing = true;
                         self.mysql_test_result = None;
                         let config = ConnectionConfig {
-                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            id: format!(
+                                "conn-{}",
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis()
+                            ),
                             name: self.mysql_form_data.name.clone(),
                             db_type: DatabaseType::MySQL,
                             host: Some(self.mysql_form_data.host.clone()),
@@ -1031,6 +999,7 @@ impl DatabaseIDE {
                             username: Some(self.mysql_form_data.username.clone()),
                             use_ssl: false,
                             parameters: HashMap::new(),
+                            pool_config: None,
                         };
                         let password = if self.mysql_form_data.password.is_empty() {
                             None
@@ -1039,7 +1008,7 @@ impl DatabaseIDE {
                         };
                         Task::perform(
                             test_connection_from_form(config, password),
-                            Message::MySQLTestResult
+                            Message::MySQLTestResult,
                         )
                     }
                     MySQLConnectionFormMessage::Save => {
@@ -1051,7 +1020,13 @@ impl DatabaseIDE {
 
                         // Create connection config
                         let config = ConnectionConfig {
-                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            id: format!(
+                                "conn-{}",
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis()
+                            ),
                             name: self.mysql_form_data.name.clone(),
                             db_type: DatabaseType::MySQL,
                             host: Some(self.mysql_form_data.host.clone()),
@@ -1060,10 +1035,14 @@ impl DatabaseIDE {
                             username: Some(self.mysql_form_data.username.clone()),
                             use_ssl: false,
                             parameters: HashMap::new(),
+                            pool_config: None,
                         };
 
                         // Save to settings
-                        self.settings_manager.settings_mut().connections.push(config.clone());
+                        self.settings_manager
+                            .settings_mut()
+                            .connections
+                            .push(config.clone());
                         if let Err(e) = self.settings_manager.save() {
                             warn!("Failed to save connection: {}", e);
                             self.mysql_test_result = Some(Err(format!("Failed to save: {}", e)));
@@ -1107,7 +1086,13 @@ impl DatabaseIDE {
                         self.sqlite_testing = true;
                         self.sqlite_test_result = None;
                         let config = ConnectionConfig {
-                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            id: format!(
+                                "conn-{}",
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis()
+                            ),
                             name: self.sqlite_form_data.name.clone(),
                             db_type: DatabaseType::SQLite,
                             host: None,
@@ -1116,10 +1101,11 @@ impl DatabaseIDE {
                             username: None,
                             use_ssl: false,
                             parameters: HashMap::new(),
+                            pool_config: None,
                         };
                         Task::perform(
                             test_connection_from_form(config, None),
-                            Message::SQLiteTestResult
+                            Message::SQLiteTestResult,
                         )
                     }
                     SQLiteConnectionFormMessage::Save => {
@@ -1131,7 +1117,13 @@ impl DatabaseIDE {
 
                         // Create connection config
                         let config = ConnectionConfig {
-                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            id: format!(
+                                "conn-{}",
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis()
+                            ),
                             name: self.sqlite_form_data.name.clone(),
                             db_type: DatabaseType::SQLite,
                             host: None,
@@ -1140,10 +1132,14 @@ impl DatabaseIDE {
                             username: None,
                             use_ssl: false,
                             parameters: HashMap::new(),
+                            pool_config: None,
                         };
 
                         // Save to settings
-                        self.settings_manager.settings_mut().connections.push(config.clone());
+                        self.settings_manager
+                            .settings_mut()
+                            .connections
+                            .push(config.clone());
                         if let Err(e) = self.settings_manager.save() {
                             warn!("Failed to save connection: {}", e);
                             self.sqlite_test_result = Some(Err(format!("Failed to save: {}", e)));
@@ -1207,7 +1203,13 @@ impl DatabaseIDE {
                         self.mongodb_testing = true;
                         self.mongodb_test_result = None;
                         let config = ConnectionConfig {
-                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            id: format!(
+                                "conn-{}",
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis()
+                            ),
                             name: self.mongodb_form_data.name.clone(),
                             db_type: DatabaseType::MongoDB,
                             host: Some(self.mongodb_form_data.host.clone()),
@@ -1216,6 +1218,7 @@ impl DatabaseIDE {
                             username: Some(self.mongodb_form_data.username.clone()),
                             use_ssl: false,
                             parameters: HashMap::new(),
+                            pool_config: None,
                         };
                         let password = if self.mongodb_form_data.password.is_empty() {
                             None
@@ -1224,7 +1227,7 @@ impl DatabaseIDE {
                         };
                         Task::perform(
                             test_connection_from_form(config, password),
-                            Message::MongoDBTestResult
+                            Message::MongoDBTestResult,
                         )
                     }
                     MongoDBConnectionFormMessage::Save => {
@@ -1236,7 +1239,13 @@ impl DatabaseIDE {
 
                         // Create connection config
                         let config = ConnectionConfig {
-                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            id: format!(
+                                "conn-{}",
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis()
+                            ),
                             name: self.mongodb_form_data.name.clone(),
                             db_type: DatabaseType::MongoDB,
                             host: Some(self.mongodb_form_data.host.clone()),
@@ -1245,10 +1254,14 @@ impl DatabaseIDE {
                             username: Some(self.mongodb_form_data.username.clone()),
                             use_ssl: false,
                             parameters: HashMap::new(),
+                            pool_config: None,
                         };
 
                         // Save to settings
-                        self.settings_manager.settings_mut().connections.push(config.clone());
+                        self.settings_manager
+                            .settings_mut()
+                            .connections
+                            .push(config.clone());
                         if let Err(e) = self.settings_manager.save() {
                             warn!("Failed to save connection: {}", e);
                             self.mongodb_test_result = Some(Err(format!("Failed to save: {}", e)));
@@ -1312,7 +1325,13 @@ impl DatabaseIDE {
                         self.sqlserver_testing = true;
                         self.sqlserver_test_result = None;
                         let config = ConnectionConfig {
-                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            id: format!(
+                                "conn-{}",
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis()
+                            ),
                             name: self.sqlserver_form_data.name.clone(),
                             db_type: DatabaseType::SQLServer,
                             host: Some(self.sqlserver_form_data.host.clone()),
@@ -1321,6 +1340,7 @@ impl DatabaseIDE {
                             username: Some(self.sqlserver_form_data.username.clone()),
                             use_ssl: false,
                             parameters: HashMap::new(),
+                            pool_config: None,
                         };
                         let password = if self.sqlserver_form_data.password.is_empty() {
                             None
@@ -1329,7 +1349,7 @@ impl DatabaseIDE {
                         };
                         Task::perform(
                             test_connection_from_form(config, password),
-                            Message::SQLServerTestResult
+                            Message::SQLServerTestResult,
                         )
                     }
                     SQLServerConnectionFormMessage::Save => {
@@ -1341,7 +1361,13 @@ impl DatabaseIDE {
 
                         // Create connection config
                         let config = ConnectionConfig {
-                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            id: format!(
+                                "conn-{}",
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis()
+                            ),
                             name: self.sqlserver_form_data.name.clone(),
                             db_type: DatabaseType::SQLServer,
                             host: Some(self.sqlserver_form_data.host.clone()),
@@ -1350,13 +1376,18 @@ impl DatabaseIDE {
                             username: Some(self.sqlserver_form_data.username.clone()),
                             use_ssl: false,
                             parameters: HashMap::new(),
+                            pool_config: None,
                         };
 
                         // Save to settings
-                        self.settings_manager.settings_mut().connections.push(config.clone());
+                        self.settings_manager
+                            .settings_mut()
+                            .connections
+                            .push(config.clone());
                         if let Err(e) = self.settings_manager.save() {
                             warn!("Failed to save connection: {}", e);
-                            self.sqlserver_test_result = Some(Err(format!("Failed to save: {}", e)));
+                            self.sqlserver_test_result =
+                                Some(Err(format!("Failed to save: {}", e)));
                             return Task::none();
                         }
 
@@ -1417,7 +1448,13 @@ impl DatabaseIDE {
                         self.oracle_testing = true;
                         self.oracle_test_result = None;
                         let config = ConnectionConfig {
-                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            id: format!(
+                                "conn-{}",
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis()
+                            ),
                             name: self.oracle_form_data.name.clone(),
                             db_type: DatabaseType::Oracle,
                             host: Some(self.oracle_form_data.host.clone()),
@@ -1426,6 +1463,7 @@ impl DatabaseIDE {
                             username: Some(self.oracle_form_data.username.clone()),
                             use_ssl: false,
                             parameters: HashMap::new(),
+                            pool_config: None,
                         };
                         let password = if self.oracle_form_data.password.is_empty() {
                             None
@@ -1434,7 +1472,7 @@ impl DatabaseIDE {
                         };
                         Task::perform(
                             test_connection_from_form(config, password),
-                            Message::OracleTestResult
+                            Message::OracleTestResult,
                         )
                     }
                     OracleConnectionFormMessage::Save => {
@@ -1446,7 +1484,13 @@ impl DatabaseIDE {
 
                         // Create connection config
                         let config = ConnectionConfig {
-                            id: format!("conn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                            id: format!(
+                                "conn-{}",
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis()
+                            ),
                             name: self.oracle_form_data.name.clone(),
                             db_type: DatabaseType::Oracle,
                             host: Some(self.oracle_form_data.host.clone()),
@@ -1455,10 +1499,14 @@ impl DatabaseIDE {
                             username: Some(self.oracle_form_data.username.clone()),
                             use_ssl: false,
                             parameters: HashMap::new(),
+                            pool_config: None,
                         };
 
                         // Save to settings
-                        self.settings_manager.settings_mut().connections.push(config.clone());
+                        self.settings_manager
+                            .settings_mut()
+                            .connections
+                            .push(config.clone());
                         if let Err(e) = self.settings_manager.save() {
                             warn!("Failed to save connection: {}", e);
                             self.oracle_test_result = Some(Err(format!("Failed to save: {}", e)));
@@ -1493,7 +1541,8 @@ impl DatabaseIDE {
 
                 Task::perform(
                     async move {
-                        let mut connection = ActiveConnection::new(config_clone.clone(), password_clone.clone());
+                        let mut connection =
+                            ActiveConnection::new(config_clone.clone(), password_clone.clone());
                         let id = connection.id.clone();
                         let name = config_clone.name.clone();
                         match connection.connect().await {
@@ -1502,24 +1551,32 @@ impl DatabaseIDE {
                         }
                     },
                     |result| match result {
-                        Ok((id, name)) => {
-                            Message::ConnectionOperationResult(id, Ok(ConnectionOperation::Connected(name)))
-                        }
+                        Ok((id, name)) => Message::ConnectionOperationResult(
+                            id,
+                            Ok(ConnectionOperation::Connected(name)),
+                        ),
                         Err((id, e)) => Message::ConnectionOperationResult(id, Err(e)),
-                    }
+                    },
                 )
             }
             Message::DisconnectFromDatabase(connection_id) => {
-                if self.connection_manager.get_connection(&connection_id).is_some() {
+                if self
+                    .connection_manager
+                    .get_connection(&connection_id)
+                    .is_some()
+                {
                     Task::perform(
                         async move {
                             // Simulate disconnect operation - return the ID with result (no connection to store)
                             Ok((connection_id, ()))
                         },
                         |result| match result {
-                            Ok((id, ())) => Message::ConnectionOperationResult(id, Ok(ConnectionOperation::Disconnected)),
+                            Ok((id, ())) => Message::ConnectionOperationResult(
+                                id,
+                                Ok(ConnectionOperation::Disconnected),
+                            ),
                             Err((id, e)) => Message::ConnectionOperationResult(id, Err(e)),
-                        }
+                        },
                     )
                 } else {
                     Task::none()
@@ -1543,7 +1600,8 @@ impl DatabaseIDE {
                                 // Create a new connected connection and add to manager
                                 let mut connection = ActiveConnection::new(config, password);
                                 // Mark as connected (connect was already successful in async task)
-                                connection.status = rusty_app::connection_manager::ConnectionStatus::Connected;
+                                connection.status =
+                                    rusty_app::connection_manager::ConnectionStatus::Connected;
                                 self.connection_manager.add_connection(connection);
                                 self.connection_manager.set_selected(Some(connection_id));
                                 self.connection_status = ConnectionStatus::Connected(name);
@@ -1583,7 +1641,6 @@ impl DatabaseIDE {
 
     /// Convert ConnectionFormData to ConnectionConfig
     fn form_data_to_config(&self, form_data: &ConnectionFormData) -> ConnectionConfig {
-        use rusty_data::adapter::DatabaseType;
 
         // Generate a unique ID from the connection name
         let id = form_data.name.to_lowercase().replace(' ', "-");
@@ -1593,7 +1650,11 @@ impl DatabaseIDE {
             DatabaseType::SQLite => (None, None, form_data.file_path.clone()),
             _ => {
                 let port = form_data.port.parse::<u16>().ok();
-                (Some(form_data.host.clone()), port, form_data.database.clone())
+                (
+                    Some(form_data.host.clone()),
+                    port,
+                    form_data.database.clone(),
+                )
             }
         };
 
@@ -1613,6 +1674,7 @@ impl DatabaseIDE {
             username,
             use_ssl: false, // TODO: Add SSL checkbox to form
             parameters: HashMap::new(),
+            pool_config: None,
         }
     }
 
@@ -1632,8 +1694,9 @@ impl DatabaseIDE {
 
                 let result = tokio::time::timeout(
                     timeout_duration,
-                    test_database_connection(config, password)
-                ).await;
+                    test_database_connection(config, password),
+                )
+                .await;
 
                 match result {
                     Ok(Ok(success)) => {
@@ -1644,10 +1707,12 @@ impl DatabaseIDE {
                         }
                     }
                     Ok(Err(e)) => Err(format!("Connection error: {}", e)),
-                    Err(_) => Err("Connection timeout: Failed to connect within 10 seconds".to_string()),
+                    Err(_) => {
+                        Err("Connection timeout: Failed to connect within 10 seconds".to_string())
+                    }
                 }
             },
-            Message::ConnectionTestResult
+            Message::ConnectionTestResult,
         )
     }
 
@@ -1690,10 +1755,7 @@ impl DatabaseIDE {
 
         content_row = content_row.push(self.main_panel());
 
-        container(content_row)
-            .width(Fill)
-            .height(Fill)
-            .into()
+        container(content_row).width(Fill).height(Fill).into()
     }
 
     fn left_panel(&self) -> Element<'_, Message> {
@@ -1715,67 +1777,52 @@ impl DatabaseIDE {
                 Message::SettingsEditor,
             )
         } else if self.showing_adapter_selector {
-            self.adapter_selector.view(
-                &self.selected_adapter,
-                Message::AdapterSelector,
-            )
+            self.adapter_selector
+                .view(&self.selected_adapter, Message::AdapterSelector)
         } else if self.showing_connection_form {
             // Show the appropriate adapter-specific form
             match self.selected_adapter {
-                Some(DatabaseType::Postgres) => {
-                    self.postgres_form.view(
-                        &self.postgres_form_data,
-                        self.postgres_testing,
-                        &self.postgres_test_result,
-                        Message::PostgresForm,
-                    )
-                }
-                Some(DatabaseType::MySQL) => {
-                    self.mysql_form.view(
-                        &self.mysql_form_data,
-                        self.mysql_testing,
-                        &self.mysql_test_result,
-                        Message::MySQLForm,
-                    )
-                }
-                Some(DatabaseType::SQLite) => {
-                    self.sqlite_form.view(
-                        &self.sqlite_form_data,
-                        self.sqlite_testing,
-                        &self.sqlite_test_result,
-                        Message::SQLiteForm,
-                    )
-                }
-                Some(DatabaseType::MongoDB) => {
-                    self.mongodb_form.view(
-                        &self.mongodb_form_data,
-                        self.mongodb_testing,
-                        &self.mongodb_test_result,
-                        Message::MongoDBForm,
-                    )
-                }
-                Some(DatabaseType::SQLServer) => {
-                    self.sqlserver_form.view(
-                        &self.sqlserver_form_data,
-                        self.sqlserver_testing,
-                        &self.sqlserver_test_result,
-                        Message::SQLServerForm,
-                    )
-                }
-                Some(DatabaseType::Oracle) => {
-                    self.oracle_form.view(
-                        &self.oracle_form_data,
-                        self.oracle_testing,
-                        &self.oracle_test_result,
-                        Message::OracleForm,
-                    )
-                }
+                Some(DatabaseType::Postgres) => self.postgres_form.view(
+                    &self.postgres_form_data,
+                    self.postgres_testing,
+                    &self.postgres_test_result,
+                    Message::PostgresForm,
+                ),
+                Some(DatabaseType::MySQL) => self.mysql_form.view(
+                    &self.mysql_form_data,
+                    self.mysql_testing,
+                    &self.mysql_test_result,
+                    Message::MySQLForm,
+                ),
+                Some(DatabaseType::SQLite) => self.sqlite_form.view(
+                    &self.sqlite_form_data,
+                    self.sqlite_testing,
+                    &self.sqlite_test_result,
+                    Message::SQLiteForm,
+                ),
+                Some(DatabaseType::MongoDB) => self.mongodb_form.view(
+                    &self.mongodb_form_data,
+                    self.mongodb_testing,
+                    &self.mongodb_test_result,
+                    Message::MongoDBForm,
+                ),
+                Some(DatabaseType::SQLServer) => self.sqlserver_form.view(
+                    &self.sqlserver_form_data,
+                    self.sqlserver_testing,
+                    &self.sqlserver_test_result,
+                    Message::SQLServerForm,
+                ),
+                Some(DatabaseType::Oracle) => self.oracle_form.view(
+                    &self.oracle_form_data,
+                    self.oracle_testing,
+                    &self.oracle_test_result,
+                    Message::OracleForm,
+                ),
+                Some(DatabaseType::DuckDB) => unreachable!("DuckDB not used in rusty-app"),
                 None => {
                     // Fallback to old connection form if adapter not selected
-                    self.connection_form.view(
-                        &self.connection_form_data,
-                        Message::ConnectionForm,
-                    )
+                    self.connection_form
+                        .view(&self.connection_form_data, Message::ConnectionForm)
                 }
             }
         } else {
@@ -1806,14 +1853,16 @@ impl DatabaseIDE {
         let query_text = match self.main_panel.get_query_text(tab_id) {
             Some(text) => {
                 if text.trim().is_empty() {
-                    self.query_errors.insert(tab_id, Some("Query is empty".to_string()));
+                    self.query_errors
+                        .insert(tab_id, Some("Query is empty".to_string()));
                     return Task::none();
                 }
                 text
             }
             None => {
                 warn!("Tab {} not found or has no query editor", tab_id);
-                self.query_errors.insert(tab_id, Some("Query editor not found".to_string()));
+                self.query_errors
+                    .insert(tab_id, Some("Query editor not found".to_string()));
                 return Task::none();
             }
         };
@@ -1830,7 +1879,10 @@ impl DatabaseIDE {
 
         // Set executing flag
         self.executing_query = true;
-        info!("Executing query for tab {} on connection {}", tab_id, connection_id);
+        info!(
+            "Executing query for tab {} on connection {}",
+            tab_id, connection_id
+        );
 
         // Execute query with timeout
         // NOTE: This is a placeholder - actual implementation would need to:
@@ -1850,20 +1902,20 @@ impl DatabaseIDE {
                     columns: vec!["id".to_string(), "name".to_string(), "email".to_string()],
                     rows: vec![
                         vec![
-                            rusty_data::adapter::QueryValue::Int(1),
-                            rusty_data::adapter::QueryValue::Text("Alice".to_string()),
-                            rusty_data::adapter::QueryValue::Text("alice@example.com".to_string()),
+                            arni::QueryValue::Int(1),
+                            arni::QueryValue::Text("Alice".to_string()),
+                            arni::QueryValue::Text("alice@example.com".to_string()),
                         ],
                         vec![
-                            rusty_data::adapter::QueryValue::Int(2),
-                            rusty_data::adapter::QueryValue::Text("Bob".to_string()),
-                            rusty_data::adapter::QueryValue::Text("bob@example.com".to_string()),
+                            arni::QueryValue::Int(2),
+                            arni::QueryValue::Text("Bob".to_string()),
+                            arni::QueryValue::Text("bob@example.com".to_string()),
                         ],
                     ],
                     rows_affected: Some(2),
                 })
             },
-            move |result| Message::QueryExecutionResult(tab_id, result)
+            move |result| Message::QueryExecutionResult(tab_id, result),
         )
     }
 }

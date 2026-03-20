@@ -5,8 +5,8 @@
 //! - `View`: Component wrapper with enabled state and region assignment
 //! - `ViewRegistry`: Centralized view management
 
-use std::collections::HashMap;
 use crate::components::{Component, ComponentId};
+use std::collections::HashMap;
 
 /// Identifies dockable regions in the application
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -196,7 +196,7 @@ impl Default for ViewRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::components::{Component, ComponentId, ComponentAction};
+    use crate::components::{Component, ComponentAction, ComponentId};
     use crate::theme::ThemeColors;
     use iced::Element;
 

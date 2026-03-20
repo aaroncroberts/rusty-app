@@ -73,9 +73,7 @@ impl SQLiteConnectionForm {
     ) -> Element<'a, Message> {
         let theme = self.theme;
 
-        let title = text("New SQLite Connection")
-            .size(18)
-            .color(theme.text);
+        let title = text("New SQLite Connection").size(18).color(theme.text);
 
         let mut form_fields = column![
             title,

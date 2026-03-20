@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use std::process::Command;
 use thiserror::Error;
 
-mod types;
 pub mod converter;
+mod types;
 
 pub use types::{ContainerInfo, ContainerStatus};
 
@@ -79,10 +79,7 @@ impl ContainerManager {
     /// }
     /// ```
     pub fn is_podman_available(&self) -> bool {
-        Command::new("podman")
-            .arg("--version")
-            .output()
-            .is_ok()
+        Command::new("podman").arg("--version").output().is_ok()
     }
 
     /// Verify compose file exists
@@ -123,8 +120,10 @@ impl ContainerManager {
             .args(&[
                 "ps",
                 "-a",
-                "--filter", "name=icitadel-dev",
-                "--format", "{{.Names}}\t{{.Status}}\t{{.Ports}}",
+                "--filter",
+                "name=icitadel-dev",
+                "--format",
+                "{{.Names}}\t{{.Status}}\t{{.Ports}}",
             ])
             .output()
             .map_err(|e| ContainerError::CommandFailed(e.to_string()))?;
@@ -198,8 +197,10 @@ impl ContainerManager {
             .args(&[
                 "ps",
                 "-a",
-                "--filter", &format!("name=^{}$", container_name),
-                "--format", "{{.Status}}",
+                "--filter",
+                &format!("name=^{}$", container_name),
+                "--format",
+                "{{.Status}}",
             ])
             .output()
             .map_err(|e| ContainerError::CommandFailed(e.to_string()))?;
@@ -425,7 +426,10 @@ mod tests {
         if !manager.is_podman_available() {
             let result = manager.status("icitadel-dev-postgres");
             assert!(result.is_err());
-            assert!(matches!(result.unwrap_err(), ContainerError::PodmanNotAvailable));
+            assert!(matches!(
+                result.unwrap_err(),
+                ContainerError::PodmanNotAvailable
+            ));
         }
     }
 

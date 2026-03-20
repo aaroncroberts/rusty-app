@@ -1,7 +1,7 @@
 use crate::adapter::{
-    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseMetadata, DatabaseType,
-    ForeignKeyInfo, IndexInfo, ProcedureInfo, QueryResult, QueryValue, ServerInfo, TableInfo,
-    TableMetadata, ViewInfo,
+    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseMetadata, DatabaseType, ForeignKeyInfo,
+    IndexInfo, ProcedureInfo, QueryResult, QueryValue, ServerInfo, TableInfo, TableMetadata,
+    ViewInfo,
 };
 use crate::error::{DataError, Result};
 use async_trait::async_trait;
@@ -30,7 +30,9 @@ impl MongoDbAdapter {
     /// Validate database name
     fn validate_database_name(name: &str) -> Result<()> {
         if name.is_empty() {
-            return Err(DataError::Config("Database name cannot be empty".to_string()));
+            return Err(DataError::Config(
+                "Database name cannot be empty".to_string(),
+            ));
         }
         // MongoDB database names have specific restrictions
         if name.len() > 64 {
@@ -40,7 +42,7 @@ impl MongoDbAdapter {
             )));
         }
         // Check for invalid characters
-        for c in ['/','\\', '.', ' ', '"', '$', '*', '<', '>', ':', '|', '?'] {
+        for c in ['/', '\\', '.', ' ', '"', '$', '*', '<', '>', ':', '|', '?'] {
             if name.contains(c) {
                 return Err(DataError::Config(format!(
                     "Database name contains invalid character '{}': {}",
@@ -54,7 +56,9 @@ impl MongoDbAdapter {
     /// Validate collection name (MongoDB's equivalent of table)
     fn validate_collection_name(name: &str) -> Result<()> {
         if name.is_empty() {
-            return Err(DataError::Config("Collection name cannot be empty".to_string()));
+            return Err(DataError::Config(
+                "Collection name cannot be empty".to_string(),
+            ));
         }
         if name.starts_with("system.") {
             return Err(DataError::Config(format!(
@@ -86,7 +90,10 @@ impl MongoDbAdapter {
 
         if let (Some(user), Some(pass)) = (username, password) {
             // Include authSource=admin for root user authentication
-            format!("mongodb://{}:{}@{}:{}/?authSource=admin", user, pass, host, port)
+            format!(
+                "mongodb://{}:{}@{}:{}/?authSource=admin",
+                user, pass, host, port
+            )
         } else {
             format!("mongodb://{}:{}", host, port)
         }
@@ -222,9 +229,13 @@ impl DatabaseAdapter for MongoDbAdapter {
                 let error_msg = e.to_string();
 
                 // Categorize MongoDB connection errors
-                let error_category = if error_msg.contains("authentication failed") || error_msg.contains("auth failed") {
+                let error_category = if error_msg.contains("authentication failed")
+                    || error_msg.contains("auth failed")
+                {
                     "authentication"
-                } else if error_msg.contains("connection refused") || error_msg.contains("No connection available") {
+                } else if error_msg.contains("connection refused")
+                    || error_msg.contains("No connection available")
+                {
                     "network"
                 } else if error_msg.contains("not master") || error_msg.contains("replica set") {
                     "replica_set"
@@ -241,12 +252,15 @@ impl DatabaseAdapter for MongoDbAdapter {
                     "Failed to connect to MongoDB"
                 );
 
-                if error_msg.contains("authentication failed") || error_msg.contains("auth failed") {
+                if error_msg.contains("authentication failed") || error_msg.contains("auth failed")
+                {
                     DataError::Connection(format!(
                         "Authentication failed for database '{}' at {}:{} - {}",
                         database, host, port, e
                     ))
-                } else if error_msg.contains("connection refused") || error_msg.contains("No connection available") {
+                } else if error_msg.contains("connection refused")
+                    || error_msg.contains("No connection available")
+                {
                     DataError::Connection(format!(
                         "Network error connecting to MongoDB at {}:{} - {}",
                         host, port, e
@@ -339,24 +353,30 @@ impl DatabaseAdapter for MongoDbAdapter {
 
         // Handle createView specially (it uses "viewName" instead of "collection")
         if operation == "createView" {
-            let view_name = command
-                .get_str("viewName")
-                .map_err(|_| DataError::Query("Missing 'viewName' field for createView operation".to_string()))?;
+            let view_name = command.get_str("viewName").map_err(|_| {
+                DataError::Query("Missing 'viewName' field for createView operation".to_string())
+            })?;
 
-            let view_on = command
-                .get_str("viewOn")
-                .map_err(|_| DataError::Query("Missing 'viewOn' field for createView operation".to_string()))?;
+            let view_on = command.get_str("viewOn").map_err(|_| {
+                DataError::Query("Missing 'viewOn' field for createView operation".to_string())
+            })?;
 
             let pipeline = command
                 .get_array("pipeline")
-                .map_err(|_| DataError::Query("Missing 'pipeline' field for createView operation".to_string()))?
+                .map_err(|_| {
+                    DataError::Query(
+                        "Missing 'pipeline' field for createView operation".to_string(),
+                    )
+                })?
                 .iter()
                 .filter_map(|d| d.as_document())
                 .cloned()
                 .collect::<Vec<Document>>();
 
             if pipeline.is_empty() {
-                return Err(DataError::Query("Pipeline must contain at least one valid document".to_string()));
+                return Err(DataError::Query(
+                    "Pipeline must contain at least one valid document".to_string(),
+                ));
             }
 
             Self::validate_collection_name(view_name)?;
@@ -367,9 +387,9 @@ impl DatabaseAdapter for MongoDbAdapter {
             options.view_on = Some(view_on.to_string());
             options.pipeline = Some(pipeline);
 
-            db.create_collection(view_name, options).await.map_err(|e| {
-                DataError::Query(format!("Create view failed: {}", e))
-            })?;
+            db.create_collection(view_name, options)
+                .await
+                .map_err(|e| DataError::Query(format!("Create view failed: {}", e)))?;
 
             let elapsed = start.elapsed();
             info!(
@@ -400,12 +420,17 @@ impl DatabaseAdapter for MongoDbAdapter {
                 // Handle insert operation
                 let document = command
                     .get_document("document")
-                    .map_err(|_| DataError::Query("Missing 'document' field for insert operation".to_string()))?
+                    .map_err(|_| {
+                        DataError::Query(
+                            "Missing 'document' field for insert operation".to_string(),
+                        )
+                    })?
                     .clone();
 
-                collection.insert_one(document, None).await.map_err(|e| {
-                    DataError::Query(format!("Insert failed: {}", e))
-                })?;
+                collection
+                    .insert_one(document, None)
+                    .await
+                    .map_err(|e| DataError::Query(format!("Insert failed: {}", e)))?;
 
                 let elapsed = start.elapsed();
                 info!(
@@ -424,7 +449,11 @@ impl DatabaseAdapter for MongoDbAdapter {
                 // Handle insert many operation
                 let documents = command
                     .get_array("documents")
-                    .map_err(|_| DataError::Query("Missing 'documents' field for insertMany operation".to_string()))?
+                    .map_err(|_| {
+                        DataError::Query(
+                            "Missing 'documents' field for insertMany operation".to_string(),
+                        )
+                    })?
                     .iter()
                     .filter_map(|d| d.as_document())
                     .cloned()
@@ -435,9 +464,10 @@ impl DatabaseAdapter for MongoDbAdapter {
                 }
 
                 let count = documents.len();
-                collection.insert_many(documents, None).await.map_err(|e| {
-                    DataError::Query(format!("InsertMany failed: {}", e))
-                })?;
+                collection
+                    .insert_many(documents, None)
+                    .await
+                    .map_err(|e| DataError::Query(format!("InsertMany failed: {}", e)))?;
 
                 let elapsed = start.elapsed();
                 info!(
@@ -457,17 +487,22 @@ impl DatabaseAdapter for MongoDbAdapter {
                 // Handle update operation
                 let filter = command
                     .get_document("filter")
-                    .map_err(|_| DataError::Query("Missing 'filter' field for update operation".to_string()))?
+                    .map_err(|_| {
+                        DataError::Query("Missing 'filter' field for update operation".to_string())
+                    })?
                     .clone();
 
                 let update = command
                     .get_document("update")
-                    .map_err(|_| DataError::Query("Missing 'update' field for update operation".to_string()))?
+                    .map_err(|_| {
+                        DataError::Query("Missing 'update' field for update operation".to_string())
+                    })?
                     .clone();
 
-                let result = collection.update_many(filter, update, None).await.map_err(|e| {
-                    DataError::Query(format!("Update failed: {}", e))
-                })?;
+                let result = collection
+                    .update_many(filter, update, None)
+                    .await
+                    .map_err(|e| DataError::Query(format!("Update failed: {}", e)))?;
 
                 let elapsed = start.elapsed();
                 info!(
@@ -487,12 +522,15 @@ impl DatabaseAdapter for MongoDbAdapter {
                 // Handle delete operation
                 let filter = command
                     .get_document("filter")
-                    .map_err(|_| DataError::Query("Missing 'filter' field for delete operation".to_string()))?
+                    .map_err(|_| {
+                        DataError::Query("Missing 'filter' field for delete operation".to_string())
+                    })?
                     .clone();
 
-                let result = collection.delete_many(filter, None).await.map_err(|e| {
-                    DataError::Query(format!("Delete failed: {}", e))
-                })?;
+                let result = collection
+                    .delete_many(filter, None)
+                    .await
+                    .map_err(|e| DataError::Query(format!("Delete failed: {}", e)))?;
 
                 let elapsed = start.elapsed();
                 info!(
@@ -510,9 +548,10 @@ impl DatabaseAdapter for MongoDbAdapter {
             }
             "drop" => {
                 // Handle drop collection operation
-                collection.drop(None).await.map_err(|e| {
-                    DataError::Query(format!("Drop collection failed: {}", e))
-                })?;
+                collection
+                    .drop(None)
+                    .await
+                    .map_err(|e| DataError::Query(format!("Drop collection failed: {}", e)))?;
 
                 let elapsed = start.elapsed();
                 info!(
@@ -534,97 +573,106 @@ impl DatabaseAdapter for MongoDbAdapter {
                     .unwrap_or(&Document::new())
                     .clone();
 
-                let mut cursor = collection
-            .find(filter, None)
-            .await
-            .map_err(|e| {
-                let elapsed = start.elapsed();
-                let error_msg = e.to_string();
+                let mut cursor = collection.find(filter, None).await.map_err(|e| {
+                    let elapsed = start.elapsed();
+                    let error_msg = e.to_string();
 
-                // Categorize MongoDB query errors
-                let error_category = if error_msg.contains("namespace not found") || error_msg.contains("does not exist") {
-                    "collection_not_found"
-                } else if error_msg.contains("unauthorized") || error_msg.contains("not authorized") {
-                    "unauthorized"
-                } else if error_msg.contains("bad query") || error_msg.contains("invalid") {
-                    "invalid_query"
-                } else {
-                    "unknown"
-                };
+                    // Categorize MongoDB query errors
+                    let error_category = if error_msg.contains("namespace not found")
+                        || error_msg.contains("does not exist")
+                    {
+                        "collection_not_found"
+                    } else if error_msg.contains("unauthorized")
+                        || error_msg.contains("not authorized")
+                    {
+                        "unauthorized"
+                    } else if error_msg.contains("bad query") || error_msg.contains("invalid") {
+                        "invalid_query"
+                    } else {
+                        "unknown"
+                    };
 
-                warn!(
-                    error = %e,
-                    error_category = %error_category,
+                    warn!(
+                        error = %e,
+                        error_category = %error_category,
+                        collection = %collection_name,
+                        query_snippet = %query_snippet,
+                        elapsed_ms = elapsed.as_millis(),
+                        "Query execution failed"
+                    );
+
+                    if error_msg.contains("namespace not found")
+                        || error_msg.contains("does not exist")
+                    {
+                        DataError::Query(format!(
+                            "Collection '{}' not found in database '{}' - {}",
+                            collection_name, db_name, e
+                        ))
+                    } else if error_msg.contains("unauthorized")
+                        || error_msg.contains("not authorized")
+                    {
+                        DataError::Query(format!(
+                            "Unauthorized to query collection '{}' - {}",
+                            collection_name, e
+                        ))
+                    } else if error_msg.contains("bad query") || error_msg.contains("invalid") {
+                        DataError::Query(format!(
+                            "Invalid query for collection '{}': {} - Query: {}",
+                            collection_name, e, query
+                        ))
+                    } else {
+                        DataError::Query(format!(
+                            "Query failed for collection '{}': {} - Query: {}",
+                            collection_name, e, query
+                        ))
+                    }
+                })?;
+
+                let fetch_start = std::time::Instant::now();
+                let mut result_rows = Vec::new();
+                let mut columns = Vec::new();
+
+                while cursor
+                    .advance()
+                    .await
+                    .map_err(|e| DataError::Query(format!("Failed to fetch results: {}", e)))?
+                {
+                    let doc = cursor.deserialize_current().map_err(|e| {
+                        DataError::Query(format!("Failed to deserialize document: {}", e))
+                    })?;
+
+                    // Collect all unique field names for columns
+                    for (key, _) in &doc {
+                        if !columns.contains(&key.clone()) {
+                            columns.push(key.clone());
+                        }
+                    }
+
+                    // Convert document to row values
+                    let mut row_values = Vec::new();
+                    for col in &columns {
+                        let value = doc
+                            .get(col)
+                            .map(Self::bson_to_query_value)
+                            .unwrap_or(QueryValue::Null);
+                        row_values.push(value);
+                    }
+                    result_rows.push(row_values);
+                }
+
+                let fetch_elapsed = fetch_start.elapsed();
+                let total_elapsed = start.elapsed();
+                let row_count = result_rows.len();
+                let column_count = columns.len();
+
+                info!(
                     collection = %collection_name,
-                    query_snippet = %query_snippet,
-                    elapsed_ms = elapsed.as_millis(),
-                    "Query execution failed"
+                    rows_count = row_count,
+                    columns_count = column_count,
+                    fetch_ms = fetch_elapsed.as_millis(),
+                    total_ms = total_elapsed.as_millis(),
+                    "Query executed successfully"
                 );
-
-                if error_msg.contains("namespace not found") || error_msg.contains("does not exist") {
-                    DataError::Query(format!(
-                        "Collection '{}' not found in database '{}' - {}",
-                        collection_name, db_name, e
-                    ))
-                } else if error_msg.contains("unauthorized") || error_msg.contains("not authorized") {
-                    DataError::Query(format!(
-                        "Unauthorized to query collection '{}' - {}",
-                        collection_name, e
-                    ))
-                } else if error_msg.contains("bad query") || error_msg.contains("invalid") {
-                    DataError::Query(format!(
-                        "Invalid query for collection '{}': {} - Query: {}",
-                        collection_name, e, query
-                    ))
-                } else {
-                    DataError::Query(format!(
-                        "Query failed for collection '{}': {} - Query: {}",
-                        collection_name, e, query
-                    ))
-                }
-            })?;
-
-        let fetch_start = std::time::Instant::now();
-        let mut result_rows = Vec::new();
-        let mut columns = Vec::new();
-
-        while cursor.advance().await.map_err(|e| DataError::Query(format!("Failed to fetch results: {}", e)))? {
-            let doc = cursor.deserialize_current().map_err(|e| {
-                DataError::Query(format!("Failed to deserialize document: {}", e))
-            })?;
-
-            // Collect all unique field names for columns
-            for (key, _) in &doc {
-                if !columns.contains(&key.clone()) {
-                    columns.push(key.clone());
-                }
-            }
-
-            // Convert document to row values
-            let mut row_values = Vec::new();
-            for col in &columns {
-                let value = doc
-                    .get(col)
-                    .map(Self::bson_to_query_value)
-                    .unwrap_or(QueryValue::Null);
-                row_values.push(value);
-            }
-            result_rows.push(row_values);
-        }
-
-        let fetch_elapsed = fetch_start.elapsed();
-        let total_elapsed = start.elapsed();
-        let row_count = result_rows.len();
-        let column_count = columns.len();
-
-        info!(
-            collection = %collection_name,
-            rows_count = row_count,
-            columns_count = column_count,
-            fetch_ms = fetch_elapsed.as_millis(),
-            total_ms = total_elapsed.as_millis(),
-            "Query executed successfully"
-        );
 
                 Ok(QueryResult {
                     columns,
@@ -692,17 +740,19 @@ impl DatabaseAdapter for MongoDbAdapter {
             .await
             .map_err(|e| DataError::Query(format!("Failed to query collection: {}", e)))?;
 
-        let mut field_types: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut field_types: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
 
         let mut sample_count = 0;
         while sample_count < 10
-            && cursor.advance().await.map_err(|e| {
-                DataError::Query(format!("Failed to fetch document: {}", e))
-            })?
+            && cursor
+                .advance()
+                .await
+                .map_err(|e| DataError::Query(format!("Failed to fetch document: {}", e)))?
         {
-            let doc = cursor.deserialize_current().map_err(|e| {
-                DataError::Query(format!("Failed to deserialize document: {}", e))
-            })?;
+            let doc = cursor
+                .deserialize_current()
+                .map_err(|e| DataError::Query(format!("Failed to deserialize document: {}", e)))?;
 
             for (key, value) in &doc {
                 let type_name = match value {
@@ -743,7 +793,11 @@ impl DatabaseAdapter for MongoDbAdapter {
         })
     }
 
-    async fn test_connection(&self, config: &ConnectionConfig, password: Option<&str>) -> Result<bool> {
+    async fn test_connection(
+        &self,
+        config: &ConnectionConfig,
+        password: Option<&str>,
+    ) -> Result<bool> {
         let connection_string = Self::build_connection_string(config, password);
 
         match ClientOptions::parse(&connection_string).await {
@@ -804,7 +858,10 @@ impl DatabaseAdapter for MongoDbAdapter {
             extra_info.insert("sys_info".to_string(), sys_info.to_string());
         }
         if let Ok(storage_engines) = build_info.get_array("storageEngines") {
-            extra_info.insert("storage_engines".to_string(), format!("{:?}", storage_engines));
+            extra_info.insert(
+                "storage_engines".to_string(),
+                format!("{:?}", storage_engines),
+            );
         }
 
         Ok(ServerInfo {
@@ -865,7 +922,11 @@ impl DatabaseAdapter for MongoDbAdapter {
     }
 
     #[instrument(skip(self), fields(table = %table_name))]
-    async fn get_table_metadata(&self, table_name: &str, _schema: Option<&str>) -> Result<TableMetadata> {
+    async fn get_table_metadata(
+        &self,
+        table_name: &str,
+        _schema: Option<&str>,
+    ) -> Result<TableMetadata> {
         info!("Retrieving metadata for collection: {}", table_name);
 
         let client = self
@@ -873,23 +934,21 @@ impl DatabaseAdapter for MongoDbAdapter {
             .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
-        let db_name = self.current_database.as_deref().ok_or_else(|| {
-            DataError::Connection("No database selected".to_string())
-        })?;
+        let db_name = self
+            .current_database
+            .as_deref()
+            .ok_or_else(|| DataError::Connection("No database selected".to_string()))?;
 
         let db = client.database(db_name);
 
         // Get collection stats
         let stats_cmd = doc! { "collStats": table_name };
-        let coll_stats = db
-            .run_command(stats_cmd, None)
-            .await
-            .map_err(|e| {
-                DataError::Query(format!(
-                    "Failed to get collection stats for '{}': {}",
-                    table_name, e
-                ))
-            })?;
+        let coll_stats = db.run_command(stats_cmd, None).await.map_err(|e| {
+            DataError::Query(format!(
+                "Failed to get collection stats for '{}': {}",
+                table_name, e
+            ))
+        })?;
 
         let size_bytes = coll_stats.get_i64("size").ok();
 
@@ -926,9 +985,10 @@ impl DatabaseAdapter for MongoDbAdapter {
             .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
-        let db_name = self.current_database.as_deref().ok_or_else(|| {
-            DataError::Connection("No database selected".to_string())
-        })?;
+        let db_name = self
+            .current_database
+            .as_deref()
+            .ok_or_else(|| DataError::Connection("No database selected".to_string()))?;
 
         let db = client.database(db_name);
         let collection = db.collection::<Document>(table_name);
@@ -943,15 +1003,14 @@ impl DatabaseAdapter for MongoDbAdapter {
 
         let mut indexes = Vec::new();
 
-        while cursor.advance().await.map_err(|e| {
-            DataError::Query(format!("Failed to iterate indexes: {}", e))
-        })? {
+        while cursor
+            .advance()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to iterate indexes: {}", e)))?
+        {
             let index_doc = cursor.current();
 
-            let index_name = index_doc
-                .get_str("name")
-                .unwrap_or("unknown")
-                .to_string();
+            let index_name = index_doc.get_str("name").unwrap_or("unknown").to_string();
 
             // Extract key fields (columns)
             let mut columns = Vec::new();
@@ -987,7 +1046,11 @@ impl DatabaseAdapter for MongoDbAdapter {
     }
 
     #[instrument(skip(self), fields(table = %_table_name))]
-    async fn get_foreign_keys(&self, _table_name: &str, _schema: Option<&str>) -> Result<Vec<ForeignKeyInfo>> {
+    async fn get_foreign_keys(
+        &self,
+        _table_name: &str,
+        _schema: Option<&str>,
+    ) -> Result<Vec<ForeignKeyInfo>> {
         info!("MongoDB does not support foreign keys");
 
         // MongoDB doesn't have foreign key constraints
@@ -1004,9 +1067,10 @@ impl DatabaseAdapter for MongoDbAdapter {
             .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
-        let db_name = self.current_database.as_deref().ok_or_else(|| {
-            DataError::Connection("No database selected".to_string())
-        })?;
+        let db_name = self
+            .current_database
+            .as_deref()
+            .ok_or_else(|| DataError::Connection("No database selected".to_string()))?;
 
         let db = client.database(db_name);
 
@@ -1019,9 +1083,11 @@ impl DatabaseAdapter for MongoDbAdapter {
 
         let mut views = Vec::new();
 
-        while cursor.advance().await.map_err(|e| {
-            DataError::Query(format!("Failed to iterate views: {}", e))
-        })? {
+        while cursor
+            .advance()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to iterate views: {}", e)))?
+        {
             let view_doc = cursor.current();
 
             let name = view_doc.get_str("name").unwrap_or("unknown").to_string();
@@ -1048,7 +1114,11 @@ impl DatabaseAdapter for MongoDbAdapter {
     }
 
     #[instrument(skip(self), fields(view = %view_name))]
-    async fn get_view_definition(&self, view_name: &str, _schema: Option<&str>) -> Result<Option<String>> {
+    async fn get_view_definition(
+        &self,
+        view_name: &str,
+        _schema: Option<&str>,
+    ) -> Result<Option<String>> {
         info!("Retrieving view definition for: {}", view_name);
 
         let client = self
@@ -1056,27 +1126,27 @@ impl DatabaseAdapter for MongoDbAdapter {
             .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
-        let db_name = self.current_database.as_deref().ok_or_else(|| {
-            DataError::Connection("No database selected".to_string())
-        })?;
+        let db_name = self
+            .current_database
+            .as_deref()
+            .ok_or_else(|| DataError::Connection("No database selected".to_string()))?;
 
         let db = client.database(db_name);
 
         // List collection to get view info
         let filter = doc! { "name": view_name, "type": "view" };
-        let mut cursor = db
-            .list_collections(Some(filter), None)
-            .await
-            .map_err(|e| {
-                DataError::Query(format!(
-                    "Failed to get view definition for '{}': {}",
-                    view_name, e
-                ))
-            })?;
+        let mut cursor = db.list_collections(Some(filter), None).await.map_err(|e| {
+            DataError::Query(format!(
+                "Failed to get view definition for '{}': {}",
+                view_name, e
+            ))
+        })?;
 
-        if cursor.advance().await.map_err(|e| {
-            DataError::Query(format!("Failed to iterate views: {}", e))
-        })? {
+        if cursor
+            .advance()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to iterate views: {}", e)))?
+        {
             let view_doc = cursor.current();
 
             if let Ok(options) = view_doc.get_document("options") {
@@ -1085,7 +1155,10 @@ impl DatabaseAdapter for MongoDbAdapter {
 
                 match (view_on, pipeline) {
                     (Some(vo), Some(p)) => {
-                        return Ok(Some(format!("View on collection: {}\nPipeline: {:?}", vo, p)));
+                        return Ok(Some(format!(
+                            "View on collection: {}\nPipeline: {:?}",
+                            vo, p
+                        )));
                     }
                     (Some(vo), None) => {
                         return Ok(Some(format!("View on collection: {}", vo)));
@@ -1135,9 +1208,10 @@ impl DatabaseAdapter for MongoDbAdapter {
             .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
-        let db_name = self.current_database.as_deref().ok_or_else(|| {
-            DataError::Connection("No database selected".to_string())
-        })?;
+        let db_name = self
+            .current_database
+            .as_deref()
+            .ok_or_else(|| DataError::Connection("No database selected".to_string()))?;
 
         // Validate all rows have the same column count
         for (idx, row) in rows.iter().enumerate() {
@@ -1178,12 +1252,9 @@ impl DatabaseAdapter for MongoDbAdapter {
         }
 
         // Use MongoDB's native insert_many for efficiency
-        let result = collection
-            .insert_many(documents, None)
-            .await
-            .map_err(|e| {
-                DataError::Query(format!("Failed to bulk insert into {}: {}", table_name, e))
-            })?;
+        let result = collection.insert_many(documents, None).await.map_err(|e| {
+            DataError::Query(format!("Failed to bulk insert into {}: {}", table_name, e))
+        })?;
 
         let rows_affected = result.inserted_ids.len() as u64;
         let elapsed = start.elapsed();
@@ -1218,9 +1289,10 @@ impl DatabaseAdapter for MongoDbAdapter {
             .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
-        let db_name = self.current_database.as_deref().ok_or_else(|| {
-            DataError::Connection("No database selected".to_string())
-        })?;
+        let db_name = self
+            .current_database
+            .as_deref()
+            .ok_or_else(|| DataError::Connection("No database selected".to_string()))?;
 
         let start = std::time::Instant::now();
 
@@ -1302,9 +1374,10 @@ impl DatabaseAdapter for MongoDbAdapter {
             .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
-        let db_name = self.current_database.as_deref().ok_or_else(|| {
-            DataError::Connection("No database selected".to_string())
-        })?;
+        let db_name = self
+            .current_database
+            .as_deref()
+            .ok_or_else(|| DataError::Connection("No database selected".to_string()))?;
 
         let start = std::time::Instant::now();
 
@@ -1322,12 +1395,9 @@ impl DatabaseAdapter for MongoDbAdapter {
             // Parse where clause to filter
             let filter = Self::parse_where_clause_to_filter(where_clause)?;
 
-            let result = collection
-                .delete_many(filter, None)
-                .await
-                .map_err(|e| {
-                    DataError::Query(format!("Failed to bulk delete from {}: {}", table_name, e))
-                })?;
+            let result = collection.delete_many(filter, None).await.map_err(|e| {
+                DataError::Query(format!("Failed to bulk delete from {}: {}", table_name, e))
+            })?;
 
             total_affected += result.deleted_count;
         }
@@ -1572,9 +1642,7 @@ mod tests {
             vec![QueryValue::Int(2), QueryValue::Text("Bob".to_string())],
         ];
 
-        let result = adapter
-            .bulk_insert("users", &columns, &rows, None)
-            .await;
+        let result = adapter.bulk_insert("users", &columns, &rows, None).await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), DataError::Connection(_)));
     }
@@ -1638,7 +1706,9 @@ mod tests {
             assert!(matches!(result.unwrap_err(), DataError::Config(_)));
 
             // Invalid characters
-            let result = adapter.bulk_insert("test$collection", &columns, &rows, None).await;
+            let result = adapter
+                .bulk_insert("test$collection", &columns, &rows, None)
+                .await;
             assert!(result.is_err());
             assert!(matches!(result.unwrap_err(), DataError::Config(_)));
         });

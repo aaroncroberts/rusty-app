@@ -6,7 +6,7 @@
 use crate::theme::ThemeColors;
 use iced::widget::{column, container, horizontal_space, row, scrollable, text};
 use iced::{Border, Element, Fill};
-use rusty_data::adapter::{ConnectionConfig, DatabaseType};
+use arni::{ConnectionConfig, DatabaseType};
 use std::collections::HashMap;
 
 /// Connection status for display
@@ -55,6 +55,7 @@ impl ConnectionList {
             DatabaseType::MongoDB => "🍃",   // MongoDB leaf
             DatabaseType::SQLServer => "⚡", // SQL Server
             DatabaseType::Oracle => "🔷",    // Oracle
+            DatabaseType::DuckDB => unreachable!("DuckDB not used in rusty-app"),
         }
     }
 
@@ -146,6 +147,7 @@ mod tests {
             username: Some("user".to_string()),
             use_ssl: false,
             parameters: HashMap::new(),
+            pool_config: None,
         }
     }
 

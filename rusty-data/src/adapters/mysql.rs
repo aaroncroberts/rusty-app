@@ -1,7 +1,7 @@
 use crate::adapter::{
-    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseMetadata, DatabaseType,
-    ForeignKeyInfo, IndexInfo, ProcedureInfo, QueryResult, QueryValue, ServerInfo,
-    TableInfo, TableMetadata, ViewInfo,
+    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseMetadata, DatabaseType, ForeignKeyInfo,
+    IndexInfo, ProcedureInfo, QueryResult, QueryValue, ServerInfo, TableInfo, TableMetadata,
+    ViewInfo,
 };
 use crate::error::{DataError, Result};
 use async_trait::async_trait;
@@ -23,7 +23,9 @@ impl MySqlAdapter {
     /// Validate database name
     fn validate_database_name(name: &str) -> Result<()> {
         if name.is_empty() {
-            return Err(DataError::Config("Database name cannot be empty".to_string()));
+            return Err(DataError::Config(
+                "Database name cannot be empty".to_string(),
+            ));
         }
         if name.len() > 64 {
             return Err(DataError::Config(format!(
@@ -57,7 +59,10 @@ impl MySqlAdapter {
     }
 
     /// Build a connection string from configuration
-    fn build_connection_string(config: &ConnectionConfig, password: Option<&str>) -> Result<String> {
+    fn build_connection_string(
+        config: &ConnectionConfig,
+        password: Option<&str>,
+    ) -> Result<String> {
         Self::validate_database_name(&config.database)?;
 
         let host = config.host.as_deref().unwrap_or("localhost");
@@ -97,9 +102,9 @@ impl MySqlAdapter {
                     }
                 }
                 "TINYINT" | "SMALLINT" | "MEDIUMINT" | "INT" | "BIGINT" => {
-                    let val: Option<i64> = row.try_get(i).map_err(|e| {
-                        DataError::Query(format!("Failed to get int value: {}", e))
-                    })?;
+                    let val: Option<i64> = row
+                        .try_get(i)
+                        .map_err(|e| DataError::Query(format!("Failed to get int value: {}", e)))?;
                     match val {
                         Some(v) => QueryValue::Int(v),
                         None => QueryValue::Null,
@@ -230,9 +235,13 @@ impl DatabaseAdapter for MySqlAdapter {
                 let error_msg = e.to_string();
 
                 // Categorize connection errors
-                let error_category = if error_msg.contains("Access denied") || error_msg.contains("authentication") {
+                let error_category = if error_msg.contains("Access denied")
+                    || error_msg.contains("authentication")
+                {
                     "authentication"
-                } else if error_msg.contains("Connection refused") || error_msg.contains("Can't connect") {
+                } else if error_msg.contains("Connection refused")
+                    || error_msg.contains("Can't connect")
+                {
                     "network"
                 } else if error_msg.contains("Unknown database") {
                     "database_not_found"
@@ -252,7 +261,9 @@ impl DatabaseAdapter for MySqlAdapter {
                         "Authentication failed for database '{}' at {}:{} - {}",
                         database, host, port, e
                     ))
-                } else if error_msg.contains("Connection refused") || error_msg.contains("Can't connect") {
+                } else if error_msg.contains("Connection refused")
+                    || error_msg.contains("Can't connect")
+                {
                     DataError::Connection(format!(
                         "Network error connecting to {}:{} - {}",
                         host, port, e
@@ -358,45 +369,42 @@ impl DatabaseAdapter for MySqlAdapter {
             });
         }
 
-        let rows = sqlx::query(query)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| {
-                let elapsed = start.elapsed();
-                let error_msg = e.to_string();
+        let rows = sqlx::query(query).fetch_all(pool).await.map_err(|e| {
+            let elapsed = start.elapsed();
+            let error_msg = e.to_string();
 
-                let error_category = if error_msg.contains("syntax") {
-                    "syntax"
-                } else if error_msg.contains("Access denied") || error_msg.contains("permission") {
-                    "permission"
-                } else if error_msg.contains("doesn't exist") || error_msg.contains("Unknown") {
-                    "object_not_found"
-                } else if error_msg.contains("Duplicate") || error_msg.contains("constraint") {
-                    "constraint"
-                } else {
-                    "unknown"
-                };
+            let error_category = if error_msg.contains("syntax") {
+                "syntax"
+            } else if error_msg.contains("Access denied") || error_msg.contains("permission") {
+                "permission"
+            } else if error_msg.contains("doesn't exist") || error_msg.contains("Unknown") {
+                "object_not_found"
+            } else if error_msg.contains("Duplicate") || error_msg.contains("constraint") {
+                "constraint"
+            } else {
+                "unknown"
+            };
 
-                warn!(
-                    error = %e,
-                    error_category = %error_category,
-                    query_snippet = %query_snippet,
-                    elapsed_ms = elapsed.as_millis(),
-                    "Query execution failed"
-                );
+            warn!(
+                error = %e,
+                error_category = %error_category,
+                query_snippet = %query_snippet,
+                elapsed_ms = elapsed.as_millis(),
+                "Query execution failed"
+            );
 
-                if error_msg.contains("syntax") {
-                    DataError::Query(format!("SQL syntax error: {} - {}", query_snippet, e))
-                } else if error_msg.contains("Access denied") || error_msg.contains("permission") {
-                    DataError::Query(format!("Permission denied: {} - {}", query_snippet, e))
-                } else if error_msg.contains("doesn't exist") || error_msg.contains("Unknown") {
-                    DataError::Query(format!("Object not found: {} - {}", query_snippet, e))
-                } else if error_msg.contains("Duplicate") || error_msg.contains("constraint") {
-                    DataError::Query(format!("Constraint violation: {} - {}", query_snippet, e))
-                } else {
-                    DataError::Query(format!("Query failed: {} - {}", query_snippet, e))
-                }
-            })?;
+            if error_msg.contains("syntax") {
+                DataError::Query(format!("SQL syntax error: {} - {}", query_snippet, e))
+            } else if error_msg.contains("Access denied") || error_msg.contains("permission") {
+                DataError::Query(format!("Permission denied: {} - {}", query_snippet, e))
+            } else if error_msg.contains("doesn't exist") || error_msg.contains("Unknown") {
+                DataError::Query(format!("Object not found: {} - {}", query_snippet, e))
+            } else if error_msg.contains("Duplicate") || error_msg.contains("constraint") {
+                DataError::Query(format!("Constraint violation: {} - {}", query_snippet, e))
+            } else {
+                DataError::Query(format!("Query failed: {} - {}", query_snippet, e))
+            }
+        })?;
 
         let fetch_elapsed = start.elapsed();
 
@@ -523,15 +531,12 @@ impl DatabaseAdapter for MySqlAdapter {
                     name: row.try_get("column_name").map_err(|e| {
                         DataError::Query(format!("Failed to get column name: {}", e))
                     })?,
-                    data_type: row.try_get("data_type").map_err(|e| {
-                        DataError::Query(format!("Failed to get data type: {}", e))
-                    })?,
-                    nullable: row
-                        .try_get::<String, _>("is_nullable")
-                        .map_err(|e| {
-                            DataError::Query(format!("Failed to get nullable flag: {}", e))
-                        })?
-                        == "YES",
+                    data_type: row
+                        .try_get("data_type")
+                        .map_err(|e| DataError::Query(format!("Failed to get data type: {}", e)))?,
+                    nullable: row.try_get::<String, _>("is_nullable").map_err(|e| {
+                        DataError::Query(format!("Failed to get nullable flag: {}", e))
+                    })? == "YES",
                     default_value: row.try_get("column_default").ok(),
                     is_primary_key: row
                         .try_get::<String, _>("column_key")
@@ -548,7 +553,11 @@ impl DatabaseAdapter for MySqlAdapter {
         })
     }
 
-    async fn test_connection(&self, config: &ConnectionConfig, password: Option<&str>) -> Result<bool> {
+    async fn test_connection(
+        &self,
+        config: &ConnectionConfig,
+        password: Option<&str>,
+    ) -> Result<bool> {
         let connection_string = Self::build_connection_string(config, password)?;
 
         match MySqlPoolOptions::new()
@@ -574,7 +583,9 @@ impl DatabaseAdapter for MySqlAdapter {
     async fn get_server_info(&self) -> Result<ServerInfo> {
         info!("Retrieving MySQL server information");
 
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
         let version_result = sqlx::query("SELECT VERSION() as version")
@@ -582,7 +593,8 @@ impl DatabaseAdapter for MySqlAdapter {
             .await
             .map_err(|e| DataError::Query(format!("Failed to get server version: {}", e)))?;
 
-        let version: String = version_result.try_get("version")
+        let version: String = version_result
+            .try_get("version")
             .map_err(|e| DataError::Query(format!("Failed to parse version: {}", e)))?;
 
         let mut extra_info = std::collections::HashMap::new();
@@ -609,7 +621,9 @@ impl DatabaseAdapter for MySqlAdapter {
     async fn get_database_metadata(&self, database_name: &str) -> Result<DatabaseMetadata> {
         info!("Retrieving metadata for database: {}", database_name);
 
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
         let query = "
@@ -625,7 +639,12 @@ impl DatabaseAdapter for MySqlAdapter {
             .bind(database_name)
             .fetch_one(pool)
             .await
-            .map_err(|e| DataError::Query(format!("Failed to get database metadata for '{}': {}", database_name, e)))?;
+            .map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to get database metadata for '{}': {}",
+                    database_name, e
+                ))
+            })?;
 
         let size_query = "
             SELECT SUM(data_length + index_length) as size_bytes
@@ -645,7 +664,9 @@ impl DatabaseAdapter for MySqlAdapter {
         }
 
         Ok(DatabaseMetadata {
-            name: result.try_get("name").unwrap_or_else(|_| database_name.to_string()),
+            name: result
+                .try_get("name")
+                .unwrap_or_else(|_| database_name.to_string()),
             size_bytes: size_result.and_then(|r| r.try_get("size_bytes").ok()),
             owner: None, // MySQL doesn't have database owners
             encoding: result.try_get("charset").ok(),
@@ -655,12 +676,18 @@ impl DatabaseAdapter for MySqlAdapter {
     }
 
     #[instrument(skip(self), fields(table = %table_name))]
-    async fn get_table_metadata(&self, table_name: &str, _schema: Option<&str>) -> Result<TableMetadata> {
+    async fn get_table_metadata(
+        &self,
+        table_name: &str,
+        _schema: Option<&str>,
+    ) -> Result<TableMetadata> {
         Self::validate_table_name(table_name)?;
 
         info!("Retrieving metadata for table: {}", table_name);
 
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
         let query = "
@@ -679,7 +706,12 @@ impl DatabaseAdapter for MySqlAdapter {
             .bind(table_name)
             .fetch_one(pool)
             .await
-            .map_err(|e| DataError::Query(format!("Failed to get table metadata for '{}': {}", table_name, e)))?;
+            .map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to get table metadata for '{}': {}",
+                    table_name, e
+                ))
+            })?;
 
         Ok(TableMetadata {
             name: table_name.to_string(),
@@ -697,7 +729,9 @@ impl DatabaseAdapter for MySqlAdapter {
 
         info!("Retrieving indexes for table: {}", table_name);
 
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
         let query = "
@@ -718,7 +752,9 @@ impl DatabaseAdapter for MySqlAdapter {
             .bind(table_name)
             .fetch_all(pool)
             .await
-            .map_err(|e| DataError::Query(format!("Failed to get indexes for '{}': {}", table_name, e)))?;
+            .map_err(|e| {
+                DataError::Query(format!("Failed to get indexes for '{}': {}", table_name, e))
+            })?;
 
         let mut indexes = Vec::new();
         for row in results {
@@ -728,7 +764,9 @@ impl DatabaseAdapter for MySqlAdapter {
 
             indexes.push(IndexInfo {
                 name: index_name.clone(),
-                table_name: row.try_get("TABLE_NAME").unwrap_or_else(|_| table_name.to_string()),
+                table_name: row
+                    .try_get("TABLE_NAME")
+                    .unwrap_or_else(|_| table_name.to_string()),
                 schema: row.try_get("TABLE_SCHEMA").ok(),
                 columns,
                 is_unique: row.try_get::<i32, _>("NON_UNIQUE").unwrap_or(1) == 0,
@@ -741,12 +779,18 @@ impl DatabaseAdapter for MySqlAdapter {
     }
 
     #[instrument(skip(self), fields(table = %table_name))]
-    async fn get_foreign_keys(&self, table_name: &str, _schema: Option<&str>) -> Result<Vec<ForeignKeyInfo>> {
+    async fn get_foreign_keys(
+        &self,
+        table_name: &str,
+        _schema: Option<&str>,
+    ) -> Result<Vec<ForeignKeyInfo>> {
         Self::validate_table_name(table_name)?;
 
         info!("Retrieving foreign keys for table: {}", table_name);
 
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
         let query = "
@@ -769,28 +813,43 @@ impl DatabaseAdapter for MySqlAdapter {
             .bind(table_name)
             .fetch_all(pool)
             .await
-            .map_err(|e| DataError::Query(format!("Failed to get foreign keys for '{}': {}", table_name, e)))?;
+            .map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to get foreign keys for '{}': {}",
+                    table_name, e
+                ))
+            })?;
 
-        let mut fk_map: std::collections::HashMap<String, ForeignKeyInfo> = std::collections::HashMap::new();
+        let mut fk_map: std::collections::HashMap<String, ForeignKeyInfo> =
+            std::collections::HashMap::new();
 
         for row in results {
             let fk_name: String = row.try_get("CONSTRAINT_NAME").unwrap_or_default();
             let column: String = row.try_get("COLUMN_NAME").unwrap_or_default();
             let ref_column: String = row.try_get("REFERENCED_COLUMN_NAME").unwrap_or_default();
 
-            fk_map.entry(fk_name.clone()).or_insert_with(|| ForeignKeyInfo {
-                name: fk_name,
-                table_name: row.try_get("TABLE_NAME").unwrap_or_else(|_| table_name.to_string()),
-                schema: row.try_get("TABLE_SCHEMA").ok(),
-                columns: Vec::new(),
-                referenced_table: row.try_get("REFERENCED_TABLE_NAME").unwrap_or_default(),
-                referenced_schema: row.try_get("REFERENCED_TABLE_SCHEMA").ok(),
-                referenced_columns: Vec::new(),
-                on_delete: None,
-                on_update: None,
-            }).columns.push(column);
+            fk_map
+                .entry(fk_name.clone())
+                .or_insert_with(|| ForeignKeyInfo {
+                    name: fk_name,
+                    table_name: row
+                        .try_get("TABLE_NAME")
+                        .unwrap_or_else(|_| table_name.to_string()),
+                    schema: row.try_get("TABLE_SCHEMA").ok(),
+                    columns: Vec::new(),
+                    referenced_table: row.try_get("REFERENCED_TABLE_NAME").unwrap_or_default(),
+                    referenced_schema: row.try_get("REFERENCED_TABLE_SCHEMA").ok(),
+                    referenced_columns: Vec::new(),
+                    on_delete: None,
+                    on_update: None,
+                })
+                .columns
+                .push(column);
 
-            if let Some(fk) = fk_map.get_mut(&row.try_get::<String, _>("CONSTRAINT_NAME").unwrap_or_default()) {
+            if let Some(fk) = fk_map.get_mut(
+                &row.try_get::<String, _>("CONSTRAINT_NAME")
+                    .unwrap_or_default(),
+            ) {
                 fk.referenced_columns.push(ref_column);
             }
         }
@@ -802,7 +861,9 @@ impl DatabaseAdapter for MySqlAdapter {
     async fn get_views(&self, _schema: Option<&str>) -> Result<Vec<ViewInfo>> {
         info!("Retrieving views");
 
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
         let query = "
@@ -830,10 +891,16 @@ impl DatabaseAdapter for MySqlAdapter {
     }
 
     #[instrument(skip(self), fields(view = %view_name))]
-    async fn get_view_definition(&self, view_name: &str, _schema: Option<&str>) -> Result<Option<String>> {
+    async fn get_view_definition(
+        &self,
+        view_name: &str,
+        _schema: Option<&str>,
+    ) -> Result<Option<String>> {
         info!("Retrieving definition for view: {}", view_name);
 
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
         let query = "
@@ -846,7 +913,12 @@ impl DatabaseAdapter for MySqlAdapter {
             .bind(view_name)
             .fetch_optional(pool)
             .await
-            .map_err(|e| DataError::Query(format!("Failed to get view definition for '{}': {}", view_name, e)))?;
+            .map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to get view definition for '{}': {}",
+                    view_name, e
+                ))
+            })?;
 
         Ok(result.and_then(|row| row.try_get("VIEW_DEFINITION").ok()))
     }
@@ -855,7 +927,9 @@ impl DatabaseAdapter for MySqlAdapter {
     async fn list_stored_procedures(&self, _schema: Option<&str>) -> Result<Vec<ProcedureInfo>> {
         info!("Retrieving stored procedures");
 
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
         let query = "
@@ -964,15 +1038,12 @@ impl DatabaseAdapter for MySqlAdapter {
         }
 
         // Execute the query
-        let result = query_builder
-            .execute(pool)
-            .await
-            .map_err(|e| {
-                DataError::Query(format!(
-                    "Failed to bulk insert into {}{}: {}",
-                    schema_prefix, table_name, e
-                ))
-            })?;
+        let result = query_builder.execute(pool).await.map_err(|e| {
+            DataError::Query(format!(
+                "Failed to bulk insert into {}{}: {}",
+                schema_prefix, table_name, e
+            ))
+        })?;
 
         let rows_affected = result.rows_affected();
         let elapsed = start.elapsed();
@@ -1053,15 +1124,12 @@ impl DatabaseAdapter for MySqlAdapter {
                 };
             }
 
-            let result = query_builder
-                .execute(pool)
-                .await
-                .map_err(|e| {
-                    DataError::Query(format!(
-                        "Failed to bulk update {}{}: {}",
-                        schema_prefix, table_name, e
-                    ))
-                })?;
+            let result = query_builder.execute(pool).await.map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to bulk update {}{}: {}",
+                    schema_prefix, table_name, e
+                ))
+            })?;
 
             total_affected += result.rows_affected();
         }
@@ -1121,15 +1189,12 @@ impl DatabaseAdapter for MySqlAdapter {
 
             debug!("Bulk delete query: {}", query);
 
-            let result = sqlx::query(&query)
-                .execute(pool)
-                .await
-                .map_err(|e| {
-                    DataError::Query(format!(
-                        "Failed to bulk delete from {}{}: {}",
-                        schema_prefix, table_name, e
-                    ))
-                })?;
+            let result = sqlx::query(&query).execute(pool).await.map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to bulk delete from {}{}: {}",
+                    schema_prefix, table_name, e
+                ))
+            })?;
 
             total_affected += result.rows_affected();
         }
@@ -1386,9 +1451,7 @@ mod tests {
             vec![QueryValue::Int(2), QueryValue::Text("Bob".to_string())],
         ];
 
-        let result = adapter
-            .bulk_insert("users", &columns, &rows, None)
-            .await;
+        let result = adapter.bulk_insert("users", &columns, &rows, None).await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), DataError::Connection(_)));
     }

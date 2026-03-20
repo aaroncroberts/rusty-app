@@ -105,7 +105,7 @@ pub enum EditorAction {
 #[derive(Debug, Clone)]
 pub enum ConnectionFormAction {
     NameChanged(String),
-    DbTypeChanged(rusty_data::adapter::DatabaseType),
+    DbTypeChanged(arni::DatabaseType),
     HostChanged(String),
     PortChanged(String),
     DatabaseChanged(String),

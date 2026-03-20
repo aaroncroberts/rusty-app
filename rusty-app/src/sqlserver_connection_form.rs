@@ -94,9 +94,7 @@ impl SQLServerConnectionForm {
     ) -> Element<'a, Message> {
         let theme = self.theme;
 
-        let title = text("New SQL Server Connection")
-            .size(18)
-            .color(theme.text);
+        let title = text("New SQL Server Connection").size(18).color(theme.text);
 
         let mut form_fields = column![
             title,
@@ -128,7 +126,9 @@ impl SQLServerConnectionForm {
             self.form_field(
                 "Database",
                 text_input("mydb", &data.database)
-                    .on_input(move |s| on_message(SQLServerConnectionFormMessage::DatabaseChanged(s)))
+                    .on_input(
+                        move |s| on_message(SQLServerConnectionFormMessage::DatabaseChanged(s))
+                    )
                     .padding(8)
                     .style(|theme, status| self.input_style(theme, status))
             ),
@@ -136,7 +136,9 @@ impl SQLServerConnectionForm {
             self.form_field(
                 "Username",
                 text_input("sa", &data.username)
-                    .on_input(move |s| on_message(SQLServerConnectionFormMessage::UsernameChanged(s)))
+                    .on_input(
+                        move |s| on_message(SQLServerConnectionFormMessage::UsernameChanged(s))
+                    )
                     .padding(8)
                     .style(|theme, status| self.input_style(theme, status))
             ),
@@ -144,7 +146,9 @@ impl SQLServerConnectionForm {
             self.form_field(
                 "Password",
                 text_input("password", &data.password)
-                    .on_input(move |s| on_message(SQLServerConnectionFormMessage::PasswordChanged(s)))
+                    .on_input(
+                        move |s| on_message(SQLServerConnectionFormMessage::PasswordChanged(s))
+                    )
                     .padding(8)
                     .secure(true)
                     .style(|theme, status| self.input_style(theme, status))

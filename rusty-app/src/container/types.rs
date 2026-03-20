@@ -104,18 +104,12 @@ mod tests {
 
     #[test]
     fn test_container_info_is_running() {
-        let running = ContainerInfo::new(
-            "test".to_string(),
-            ContainerStatus::Running,
-            "".to_string(),
-        );
+        let running =
+            ContainerInfo::new("test".to_string(), ContainerStatus::Running, "".to_string());
         assert!(running.is_running());
 
-        let stopped = ContainerInfo::new(
-            "test".to_string(),
-            ContainerStatus::Stopped,
-            "".to_string(),
-        );
+        let stopped =
+            ContainerInfo::new("test".to_string(), ContainerStatus::Stopped, "".to_string());
         assert!(!stopped.is_running());
     }
 

@@ -1,7 +1,7 @@
 use crate::adapter::{
-    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseMetadata, DatabaseType,
-    ForeignKeyInfo, IndexInfo, ProcedureInfo, QueryResult, QueryValue, ServerInfo, TableInfo,
-    TableMetadata, ViewInfo,
+    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseMetadata, DatabaseType, ForeignKeyInfo,
+    IndexInfo, ProcedureInfo, QueryResult, QueryValue, ServerInfo, TableInfo, TableMetadata,
+    ViewInfo,
 };
 use crate::error::{DataError, Result};
 use crate::pool::Pool;
@@ -24,7 +24,9 @@ impl OracleAdapter {
     /// Validate database name (service name or SID)
     fn validate_database_name(name: &str) -> Result<()> {
         if name.is_empty() {
-            return Err(DataError::Config("Database name (service name/SID) cannot be empty".to_string()));
+            return Err(DataError::Config(
+                "Database name (service name/SID) cannot be empty".to_string(),
+            ));
         }
         if name.len() > 128 {
             return Err(DataError::Config(format!(
@@ -81,84 +83,108 @@ impl OracleAdapter {
         let conn_guard = futures::executor::block_on(pool.lock());
 
         // Execute the query
-        let mut stmt = conn_guard.statement(&query).build()
-            .map_err(|e| {
-                let elapsed = start.elapsed();
-                let error_msg = e.to_string();
+        let mut stmt = conn_guard.statement(&query).build().map_err(|e| {
+            let elapsed = start.elapsed();
+            let error_msg = e.to_string();
 
-                let error_category = if error_msg.contains("ORA-00900") || error_msg.contains("invalid SQL statement") {
+            let error_category =
+                if error_msg.contains("ORA-00900") || error_msg.contains("invalid SQL statement") {
                     "syntax"
                 } else {
                     "prepare_failed"
                 };
 
-                tracing::warn!(
-                    error = %e,
-                    error_category = %error_category,
-                    query_snippet = %query_snippet,
-                    elapsed_ms = elapsed.as_millis(),
-                    "Failed to prepare Oracle statement"
-                );
+            tracing::warn!(
+                error = %e,
+                error_category = %error_category,
+                query_snippet = %query_snippet,
+                elapsed_ms = elapsed.as_millis(),
+                "Failed to prepare Oracle statement"
+            );
 
-                if error_msg.contains("ORA-00900") || error_msg.contains("invalid SQL statement") {
-                    DataError::Query(format!("SQL syntax error: {} - Query: {}", e, query))
-                } else {
-                    DataError::Query(format!("Failed to prepare statement: {} - Query: {}", e, query))
-                }
-            })?;
+            if error_msg.contains("ORA-00900") || error_msg.contains("invalid SQL statement") {
+                DataError::Query(format!("SQL syntax error: {} - Query: {}", e, query))
+            } else {
+                DataError::Query(format!(
+                    "Failed to prepare statement: {} - Query: {}",
+                    e, query
+                ))
+            }
+        })?;
 
-        let mut result_set = stmt.query(&[])
-            .map_err(|e| {
-                let elapsed = start.elapsed();
-                let error_msg = e.to_string();
+        let mut result_set = stmt.query(&[]).map_err(|e| {
+            let elapsed = start.elapsed();
+            let error_msg = e.to_string();
 
-                // Categorize Oracle query errors
-                let error_category = if error_msg.contains("ORA-00942") || error_msg.contains("table or view does not exist") {
-                    "object_not_found"
-                } else if error_msg.contains("ORA-00904") || error_msg.contains("invalid identifier") {
-                    "column_not_found"
-                } else if error_msg.contains("ORA-00001") || error_msg.contains("unique constraint") {
-                    "unique_constraint"
-                } else if error_msg.contains("ORA-02291") || error_msg.contains("integrity constraint") {
-                    "foreign_key_constraint"
-                } else if error_msg.contains("ORA-01407") || error_msg.contains("cannot update") && error_msg.contains("to NULL") {
-                    "not_null_constraint"
-                } else if error_msg.contains("ORA-02290") || error_msg.contains("check constraint") {
-                    "check_constraint"
-                } else {
-                    "unknown"
-                };
+            // Categorize Oracle query errors
+            let error_category = if error_msg.contains("ORA-00942")
+                || error_msg.contains("table or view does not exist")
+            {
+                "object_not_found"
+            } else if error_msg.contains("ORA-00904") || error_msg.contains("invalid identifier") {
+                "column_not_found"
+            } else if error_msg.contains("ORA-00001") || error_msg.contains("unique constraint") {
+                "unique_constraint"
+            } else if error_msg.contains("ORA-02291") || error_msg.contains("integrity constraint")
+            {
+                "foreign_key_constraint"
+            } else if error_msg.contains("ORA-01407")
+                || error_msg.contains("cannot update") && error_msg.contains("to NULL")
+            {
+                "not_null_constraint"
+            } else if error_msg.contains("ORA-02290") || error_msg.contains("check constraint") {
+                "check_constraint"
+            } else {
+                "unknown"
+            };
 
-                tracing::warn!(
-                    error = %e,
-                    error_category = %error_category,
-                    query_snippet = %query_snippet,
-                    elapsed_ms = elapsed.as_millis(),
-                    "Query execution failed"
-                );
+            tracing::warn!(
+                error = %e,
+                error_category = %error_category,
+                query_snippet = %query_snippet,
+                elapsed_ms = elapsed.as_millis(),
+                "Query execution failed"
+            );
 
-                if error_msg.contains("ORA-00942") || error_msg.contains("table or view does not exist") {
-                    DataError::Query(format!("Table or view not found: {} - Query: {}", e, query))
-                } else if error_msg.contains("ORA-00904") || error_msg.contains("invalid identifier") {
-                    DataError::Query(format!("Column not found: {} - Query: {}", e, query))
-                } else if error_msg.contains("ORA-00001") || error_msg.contains("unique constraint") {
-                    DataError::Query(format!("Unique constraint violation: {} - Query: {}", e, query))
-                } else if error_msg.contains("ORA-02291") || error_msg.contains("integrity constraint") {
-                    DataError::Query(format!("Foreign key constraint violation: {} - Query: {}", e, query))
-                } else if error_msg.contains("ORA-01407") || error_msg.contains("cannot update") && error_msg.contains("to NULL") {
-                    DataError::Query(format!("Not null constraint violation: {} - Query: {}", e, query))
-                } else if error_msg.contains("ORA-02290") || error_msg.contains("check constraint") {
-                    DataError::Query(format!("Check constraint violation: {} - Query: {}", e, query))
-                } else {
-                    DataError::Query(format!("Query failed: {} - Query: {}", e, query))
-                }
-            })?;
+            if error_msg.contains("ORA-00942") || error_msg.contains("table or view does not exist")
+            {
+                DataError::Query(format!("Table or view not found: {} - Query: {}", e, query))
+            } else if error_msg.contains("ORA-00904") || error_msg.contains("invalid identifier") {
+                DataError::Query(format!("Column not found: {} - Query: {}", e, query))
+            } else if error_msg.contains("ORA-00001") || error_msg.contains("unique constraint") {
+                DataError::Query(format!(
+                    "Unique constraint violation: {} - Query: {}",
+                    e, query
+                ))
+            } else if error_msg.contains("ORA-02291") || error_msg.contains("integrity constraint")
+            {
+                DataError::Query(format!(
+                    "Foreign key constraint violation: {} - Query: {}",
+                    e, query
+                ))
+            } else if error_msg.contains("ORA-01407")
+                || error_msg.contains("cannot update") && error_msg.contains("to NULL")
+            {
+                DataError::Query(format!(
+                    "Not null constraint violation: {} - Query: {}",
+                    e, query
+                ))
+            } else if error_msg.contains("ORA-02290") || error_msg.contains("check constraint") {
+                DataError::Query(format!(
+                    "Check constraint violation: {} - Query: {}",
+                    e, query
+                ))
+            } else {
+                DataError::Query(format!("Query failed: {} - Query: {}", e, query))
+            }
+        })?;
 
         let fetch_start = std::time::Instant::now();
 
         // Get column information
         let column_info = result_set.column_info();
-        let columns: Vec<String> = column_info.iter()
+        let columns: Vec<String> = column_info
+            .iter()
             .map(|col| col.name().to_string())
             .collect();
 
@@ -167,9 +193,8 @@ impl OracleAdapter {
         // Collect rows
         let mut rows = Vec::new();
         for row_result in &mut result_set {
-            let row = row_result.map_err(|e| {
-                DataError::Query(format!("Failed to fetch row: {}", e))
-            })?;
+            let row =
+                row_result.map_err(|e| DataError::Query(format!("Failed to fetch row: {}", e)))?;
             let values = Self::row_to_values(&row, column_count)?;
             rows.push(values);
         }
@@ -273,13 +298,13 @@ impl DatabaseAdapter for OracleAdapter {
         );
         let start = std::time::Instant::now();
 
-        let username = config.username.as_deref().ok_or_else(|| {
-            DataError::Config("Username is required for Oracle".to_string())
-        })?;
+        let username = config
+            .username
+            .as_deref()
+            .ok_or_else(|| DataError::Config("Username is required for Oracle".to_string()))?;
 
-        let password = password.ok_or_else(|| {
-            DataError::Connection("Password is required for Oracle".to_string())
-        })?;
+        let password = password
+            .ok_or_else(|| DataError::Connection("Password is required for Oracle".to_string()))?;
 
         let connection_string = Self::build_connection_string(config);
 
@@ -288,80 +313,99 @@ impl DatabaseAdapter for OracleAdapter {
         let user = username.to_string();
         let pass = password.to_string();
 
-        let connection = tokio::task::spawn_blocking(move || {
-            Connection::connect(&user, &pass, &conn_str)
-        })
-        .await
-        .map_err(|e| {
-            let elapsed = start.elapsed();
-            warn!(
-                error = %e,
-                elapsed_ms = elapsed.as_millis(),
-                "Task join error"
-            );
-            DataError::Connection(format!(
-                "Task join error connecting to Oracle at {}:{} - {}",
-                host, port, e
-            ))
-        })?
-        .map_err(|e| {
-            let elapsed = start.elapsed();
-            let error_msg = e.to_string();
+        let connection =
+            tokio::task::spawn_blocking(move || Connection::connect(&user, &pass, &conn_str))
+                .await
+                .map_err(|e| {
+                    let elapsed = start.elapsed();
+                    warn!(
+                        error = %e,
+                        elapsed_ms = elapsed.as_millis(),
+                        "Task join error"
+                    );
+                    DataError::Connection(format!(
+                        "Task join error connecting to Oracle at {}:{} - {}",
+                        host, port, e
+                    ))
+                })?
+                .map_err(|e| {
+                    let elapsed = start.elapsed();
+                    let error_msg = e.to_string();
 
-            // Categorize Oracle connection errors
-            let error_category = if error_msg.contains("ORA-01017") || error_msg.contains("invalid username/password") {
-                "authentication"
-            } else if error_msg.contains("ORA-12154") || error_msg.contains("TNS:could not resolve") {
-                "tns_resolution"
-            } else if error_msg.contains("ORA-12170") || error_msg.contains("TNS:connect timeout") {
-                "timeout"
-            } else if error_msg.contains("ORA-12541") || error_msg.contains("TNS:no listener") {
-                "no_listener"
-            } else if error_msg.contains("ORA-01033") || error_msg.contains("ORACLE initialization or shutdown") {
-                "instance_unavailable"
-            } else {
-                "unknown"
-            };
+                    // Categorize Oracle connection errors
+                    let error_category = if error_msg.contains("ORA-01017")
+                        || error_msg.contains("invalid username/password")
+                    {
+                        "authentication"
+                    } else if error_msg.contains("ORA-12154")
+                        || error_msg.contains("TNS:could not resolve")
+                    {
+                        "tns_resolution"
+                    } else if error_msg.contains("ORA-12170")
+                        || error_msg.contains("TNS:connect timeout")
+                    {
+                        "timeout"
+                    } else if error_msg.contains("ORA-12541")
+                        || error_msg.contains("TNS:no listener")
+                    {
+                        "no_listener"
+                    } else if error_msg.contains("ORA-01033")
+                        || error_msg.contains("ORACLE initialization or shutdown")
+                    {
+                        "instance_unavailable"
+                    } else {
+                        "unknown"
+                    };
 
-            warn!(
-                error = %e,
-                error_category = %error_category,
-                elapsed_ms = elapsed.as_millis(),
-                "Failed to connect to Oracle"
-            );
+                    warn!(
+                        error = %e,
+                        error_category = %error_category,
+                        elapsed_ms = elapsed.as_millis(),
+                        "Failed to connect to Oracle"
+                    );
 
-            if error_msg.contains("ORA-01017") || error_msg.contains("invalid username/password") {
-                DataError::Connection(format!(
-                    "Authentication failed for database '{}' at {}:{} - {}",
-                    database, host, port, e
-                ))
-            } else if error_msg.contains("ORA-12154") || error_msg.contains("TNS:could not resolve") {
-                DataError::Connection(format!(
-                    "Service name '{}' not found or TNS resolution failed at {}:{} - {}",
-                    database, host, port, e
-                ))
-            } else if error_msg.contains("ORA-12170") || error_msg.contains("TNS:connect timeout") {
-                DataError::Connection(format!(
-                    "Network timeout connecting to Oracle at {}:{} - {}",
-                    host, port, e
-                ))
-            } else if error_msg.contains("ORA-12541") || error_msg.contains("TNS:no listener") {
-                DataError::Connection(format!(
-                    "No listener at {}:{} - is Oracle service running? - {}",
-                    host, port, e
-                ))
-            } else if error_msg.contains("ORA-01033") || error_msg.contains("ORACLE initialization or shutdown") {
-                DataError::Connection(format!(
-                    "Oracle instance at {}:{} is starting up or shutting down - {}",
-                    host, port, e
-                ))
-            } else {
-                DataError::Connection(format!(
-                    "Failed to connect to database '{}' at {}:{} - {}",
-                    database, host, port, e
-                ))
-            }
-        })?;
+                    if error_msg.contains("ORA-01017")
+                        || error_msg.contains("invalid username/password")
+                    {
+                        DataError::Connection(format!(
+                            "Authentication failed for database '{}' at {}:{} - {}",
+                            database, host, port, e
+                        ))
+                    } else if error_msg.contains("ORA-12154")
+                        || error_msg.contains("TNS:could not resolve")
+                    {
+                        DataError::Connection(format!(
+                            "Service name '{}' not found or TNS resolution failed at {}:{} - {}",
+                            database, host, port, e
+                        ))
+                    } else if error_msg.contains("ORA-12170")
+                        || error_msg.contains("TNS:connect timeout")
+                    {
+                        DataError::Connection(format!(
+                            "Network timeout connecting to Oracle at {}:{} - {}",
+                            host, port, e
+                        ))
+                    } else if error_msg.contains("ORA-12541")
+                        || error_msg.contains("TNS:no listener")
+                    {
+                        DataError::Connection(format!(
+                            "No listener at {}:{} - is Oracle service running? - {}",
+                            host, port, e
+                        ))
+                    } else if error_msg.contains("ORA-01033")
+                        || error_msg.contains("ORACLE initialization or shutdown")
+                    {
+                        DataError::Connection(format!(
+                            "Oracle instance at {}:{} is starting up or shutting down - {}",
+                            host, port, e
+                        ))
+                    } else {
+                        DataError::Connection(format!(
+                            "Failed to connect to database '{}' at {}:{} - {}",
+                            database, host, port, e
+                        ))
+                    }
+                })?;
 
         let elapsed = start.elapsed();
         self.pool = Some(Pool::new(connection));
@@ -393,7 +437,9 @@ impl DatabaseAdapter for OracleAdapter {
 
         // Clone pool and drop borrow of self immediately
         let pool = {
-            let pool_ref = self.pool.as_ref()
+            let pool_ref = self
+                .pool
+                .as_ref()
                 .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
             pool_ref.clone()
         };
@@ -401,14 +447,13 @@ impl DatabaseAdapter for OracleAdapter {
         let query = query.to_string();
 
         // Oracle is synchronous, so we run queries in a blocking task
-        let result = tokio::task::spawn_blocking(move || {
-            Self::execute_blocking(pool.clone(), query)
-        })
-        .await
-        .map_err(|e| {
-            warn!(error = %e, "Task join error");
-            DataError::Query(format!("Failed to execute query: {}", e))
-        })??;
+        let result =
+            tokio::task::spawn_blocking(move || Self::execute_blocking(pool.clone(), query))
+                .await
+                .map_err(|e| {
+                    warn!(error = %e, "Task join error");
+                    DataError::Query(format!("Failed to execute query: {}", e))
+                })??;
 
         Ok(result)
     }
@@ -530,7 +575,11 @@ impl DatabaseAdapter for OracleAdapter {
         })
     }
 
-    async fn test_connection(&self, config: &ConnectionConfig, password: Option<&str>) -> Result<bool> {
+    async fn test_connection(
+        &self,
+        config: &ConnectionConfig,
+        password: Option<&str>,
+    ) -> Result<bool> {
         let username = match &config.username {
             Some(u) => u.clone(),
             None => return Ok(false),
@@ -567,17 +616,17 @@ impl DatabaseAdapter for OracleAdapter {
     async fn get_server_info(&self) -> Result<ServerInfo> {
         info!("Retrieving Oracle server info");
 
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
             .clone();
 
         let query = "SELECT * FROM v$version WHERE banner LIKE 'Oracle%'".to_string();
 
-        let result = tokio::task::spawn_blocking(move || {
-            Self::execute_blocking(pool, query)
-        })
-        .await
-        .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
+        let result = tokio::task::spawn_blocking(move || Self::execute_blocking(pool, query))
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
 
         let mut version = String::from("unknown");
         let mut extra_info = std::collections::HashMap::new();
@@ -600,7 +649,9 @@ impl DatabaseAdapter for OracleAdapter {
     async fn get_database_metadata(&self, database_name: &str) -> Result<DatabaseMetadata> {
         info!("Retrieving metadata for database: {}", database_name);
 
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
             .clone();
 
@@ -613,11 +664,9 @@ impl DatabaseAdapter for OracleAdapter {
             FROM v$database"
         );
 
-        let result = tokio::task::spawn_blocking(move || {
-            Self::execute_blocking(pool, query)
-        })
-        .await
-        .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
+        let result = tokio::task::spawn_blocking(move || Self::execute_blocking(pool, query))
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
 
         let mut created_at = None;
         let mut extra_info = std::collections::HashMap::new();
@@ -642,13 +691,19 @@ impl DatabaseAdapter for OracleAdapter {
     }
 
     #[instrument(skip(self), fields(table = %table_name))]
-    async fn get_table_metadata(&self, table_name: &str, schema: Option<&str>) -> Result<TableMetadata> {
+    async fn get_table_metadata(
+        &self,
+        table_name: &str,
+        schema: Option<&str>,
+    ) -> Result<TableMetadata> {
         Self::validate_table_name(table_name)?;
 
         info!("Retrieving metadata for table: {}", table_name);
 
         let owner = schema.unwrap_or("USER");
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
             .clone();
 
@@ -663,11 +718,9 @@ impl DatabaseAdapter for OracleAdapter {
             table_name, owner
         );
 
-        let result = tokio::task::spawn_blocking(move || {
-            Self::execute_blocking(pool, query)
-        })
-        .await
-        .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
+        let result = tokio::task::spawn_blocking(move || Self::execute_blocking(pool, query))
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
 
         let mut row_count = None;
 
@@ -696,7 +749,9 @@ impl DatabaseAdapter for OracleAdapter {
         info!("Retrieving indexes for table: {}", table_name);
 
         let owner = schema.unwrap_or("USER");
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
             .clone();
 
@@ -714,11 +769,9 @@ impl DatabaseAdapter for OracleAdapter {
             table_name, owner
         );
 
-        let result = tokio::task::spawn_blocking(move || {
-            Self::execute_blocking(pool, query)
-        })
-        .await
-        .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
+        let result = tokio::task::spawn_blocking(move || Self::execute_blocking(pool, query))
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
 
         let mut indexes = Vec::new();
 
@@ -737,7 +790,10 @@ impl DatabaseAdapter for OracleAdapter {
                 Some(QueryValue::Text(s)) => s.clone(),
                 _ => String::new(),
             };
-            let columns: Vec<String> = columns_str.split(',').map(|s| s.trim().to_string()).collect();
+            let columns: Vec<String> = columns_str
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect();
 
             let index_type = match row.get(3) {
                 Some(QueryValue::Text(s)) => Some(s.clone()),
@@ -762,13 +818,19 @@ impl DatabaseAdapter for OracleAdapter {
     }
 
     #[instrument(skip(self), fields(table = %table_name))]
-    async fn get_foreign_keys(&self, table_name: &str, schema: Option<&str>) -> Result<Vec<ForeignKeyInfo>> {
+    async fn get_foreign_keys(
+        &self,
+        table_name: &str,
+        schema: Option<&str>,
+    ) -> Result<Vec<ForeignKeyInfo>> {
         Self::validate_table_name(table_name)?;
 
         info!("Retrieving foreign keys for table: {}", table_name);
 
         let owner = schema.unwrap_or("USER");
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
             .clone();
 
@@ -810,7 +872,10 @@ impl DatabaseAdapter for OracleAdapter {
                 Some(QueryValue::Text(s)) => s.clone(),
                 _ => String::new(),
             };
-            let columns: Vec<String> = columns_str.split(',').map(|s| s.trim().to_string()).collect();
+            let columns: Vec<String> = columns_str
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect();
 
             let referenced_table = match row.get(5) {
                 Some(QueryValue::Text(s)) => s.clone(),
@@ -852,7 +917,9 @@ impl DatabaseAdapter for OracleAdapter {
         info!("Retrieving views");
 
         let owner = schema.unwrap_or("USER");
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
             .clone();
 
@@ -863,11 +930,9 @@ impl DatabaseAdapter for OracleAdapter {
             owner
         );
 
-        let result = tokio::task::spawn_blocking(move || {
-            Self::execute_blocking(pool, query)
-        })
-        .await
-        .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
+        let result = tokio::task::spawn_blocking(move || Self::execute_blocking(pool, query))
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
 
         let mut views = Vec::new();
 
@@ -893,11 +958,17 @@ impl DatabaseAdapter for OracleAdapter {
     }
 
     #[instrument(skip(self), fields(view = %view_name))]
-    async fn get_view_definition(&self, view_name: &str, schema: Option<&str>) -> Result<Option<String>> {
+    async fn get_view_definition(
+        &self,
+        view_name: &str,
+        schema: Option<&str>,
+    ) -> Result<Option<String>> {
         info!("Retrieving view definition for: {}", view_name);
 
         let owner = schema.unwrap_or("USER");
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
             .clone();
 
@@ -909,11 +980,9 @@ impl DatabaseAdapter for OracleAdapter {
             view_name, owner
         );
 
-        let result = tokio::task::spawn_blocking(move || {
-            Self::execute_blocking(pool, query)
-        })
-        .await
-        .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
+        let result = tokio::task::spawn_blocking(move || Self::execute_blocking(pool, query))
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
 
         if !result.rows.is_empty() {
             if let Some(QueryValue::Text(text)) = result.rows[0].first() {
@@ -929,7 +998,9 @@ impl DatabaseAdapter for OracleAdapter {
         info!("Listing stored procedures");
 
         let owner = schema.unwrap_or("USER");
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
             .clone();
 
@@ -941,11 +1012,9 @@ impl DatabaseAdapter for OracleAdapter {
             owner
         );
 
-        let result = tokio::task::spawn_blocking(move || {
-            Self::execute_blocking(pool, query)
-        })
-        .await
-        .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
+        let result = tokio::task::spawn_blocking(move || Self::execute_blocking(pool, query))
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to execute query: {}", e)))??;
 
         let mut procedures = Vec::new();
 
@@ -994,9 +1063,7 @@ impl DatabaseAdapter for OracleAdapter {
         // Validation
         Self::validate_table_name(table_name)?;
         if columns.is_empty() {
-            return Err(DataError::Config(
-                "Column list cannot be empty".to_string(),
-            ));
+            return Err(DataError::Config("Column list cannot be empty".to_string()));
         }
         if rows.is_empty() {
             return Err(DataError::Config("Rows cannot be empty".to_string()));
@@ -1015,7 +1082,9 @@ impl DatabaseAdapter for OracleAdapter {
         }
 
         // Check connection
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
             .clone();
 
@@ -1040,7 +1109,8 @@ impl DatabaseAdapter for OracleAdapter {
                     QueryValue::Float(f) => f.to_string(),
                     QueryValue::Text(s) => format!("'{}'", s.replace("'", "''")),
                     QueryValue::Bytes(b) => {
-                        let hex_str: String = b.iter().map(|byte| format!("{:02X}", byte)).collect();
+                        let hex_str: String =
+                            b.iter().map(|byte| format!("{:02X}", byte)).collect();
                         format!("HEXTORAW('{}')", hex_str)
                     }
                 })
@@ -1062,13 +1132,13 @@ impl DatabaseAdapter for OracleAdapter {
         tokio::task::spawn_blocking(move || {
             let conn_guard = futures::executor::block_on(pool.lock());
 
-            let mut stmt = conn_guard.statement(&query).build().map_err(|e| {
-                DataError::Query(format!("Failed to prepare statement: {}", e))
-            })?;
+            let mut stmt = conn_guard
+                .statement(&query)
+                .build()
+                .map_err(|e| DataError::Query(format!("Failed to prepare statement: {}", e)))?;
 
-            stmt.execute(&[]).map_err(|e| {
-                DataError::Query(format!("Failed to execute bulk insert: {}", e))
-            })?;
+            stmt.execute(&[])
+                .map_err(|e| DataError::Query(format!("Failed to execute bulk insert: {}", e)))?;
 
             Ok::<(), DataError>(())
         })
@@ -1109,7 +1179,9 @@ impl DatabaseAdapter for OracleAdapter {
         }
 
         // Check connection
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
             .clone();
 
@@ -1153,13 +1225,13 @@ impl DatabaseAdapter for OracleAdapter {
             tokio::task::spawn_blocking(move || {
                 let conn_guard = futures::executor::block_on(pool_clone.lock());
 
-                let mut stmt = conn_guard.statement(&query).build().map_err(|e| {
-                    DataError::Query(format!("Failed to prepare statement: {}", e))
-                })?;
+                let mut stmt = conn_guard
+                    .statement(&query)
+                    .build()
+                    .map_err(|e| DataError::Query(format!("Failed to prepare statement: {}", e)))?;
 
-                stmt.execute(&[]).map_err(|e| {
-                    DataError::Query(format!("Failed to execute update: {}", e))
-                })?;
+                stmt.execute(&[])
+                    .map_err(|e| DataError::Query(format!("Failed to execute update: {}", e)))?;
 
                 Ok::<(), DataError>(())
             })
@@ -1170,11 +1242,7 @@ impl DatabaseAdapter for OracleAdapter {
         }
 
         let elapsed = start.elapsed();
-        info!(
-            "Bulk updated {} rows in {:?}",
-            total_affected,
-            elapsed
-        );
+        info!("Bulk updated {} rows in {:?}", total_affected, elapsed);
 
         Ok(total_affected)
     }
@@ -1202,7 +1270,9 @@ impl DatabaseAdapter for OracleAdapter {
         }
 
         // Check connection
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
             .clone();
 
@@ -1220,13 +1290,13 @@ impl DatabaseAdapter for OracleAdapter {
             tokio::task::spawn_blocking(move || {
                 let conn_guard = futures::executor::block_on(pool_clone.lock());
 
-                let mut stmt = conn_guard.statement(&query).build().map_err(|e| {
-                    DataError::Query(format!("Failed to prepare statement: {}", e))
-                })?;
+                let mut stmt = conn_guard
+                    .statement(&query)
+                    .build()
+                    .map_err(|e| DataError::Query(format!("Failed to prepare statement: {}", e)))?;
 
-                stmt.execute(&[]).map_err(|e| {
-                    DataError::Query(format!("Failed to execute delete: {}", e))
-                })?;
+                stmt.execute(&[])
+                    .map_err(|e| DataError::Query(format!("Failed to execute delete: {}", e)))?;
 
                 Ok::<(), DataError>(())
             })
@@ -1237,11 +1307,7 @@ impl DatabaseAdapter for OracleAdapter {
         }
 
         let elapsed = start.elapsed();
-        info!(
-            "Bulk deleted {} rows in {:?}",
-            total_affected,
-            elapsed
-        );
+        info!("Bulk deleted {} rows in {:?}", total_affected, elapsed);
 
         Ok(total_affected)
     }
@@ -1363,10 +1429,13 @@ mod tests {
     async fn test_bulk_insert_not_connected() {
         let adapter = OracleAdapter::new();
         let columns = vec!["id".to_string(), "name".to_string()];
-        let rows = vec![
-            vec![QueryValue::Int(1), QueryValue::Text("Alice".to_string())],
-        ];
-        let result = adapter.bulk_insert("test_table", &columns, &rows, None).await;
+        let rows = vec![vec![
+            QueryValue::Int(1),
+            QueryValue::Text("Alice".to_string()),
+        ]];
+        let result = adapter
+            .bulk_insert("test_table", &columns, &rows, None)
+            .await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), DataError::Connection(_)));
     }
@@ -1386,7 +1455,9 @@ mod tests {
         let adapter = OracleAdapter::new();
         let columns: Vec<String> = vec![];
         let rows = vec![vec![QueryValue::Int(1)]];
-        let result = adapter.bulk_insert("test_table", &columns, &rows, None).await;
+        let result = adapter
+            .bulk_insert("test_table", &columns, &rows, None)
+            .await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), DataError::Config(_)));
     }
@@ -1396,7 +1467,9 @@ mod tests {
         let adapter = OracleAdapter::new();
         let columns = vec!["id".to_string()];
         let rows: Vec<Vec<QueryValue>> = vec![];
-        let result = adapter.bulk_insert("test_table", &columns, &rows, None).await;
+        let result = adapter
+            .bulk_insert("test_table", &columns, &rows, None)
+            .await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), DataError::Config(_)));
     }
@@ -1408,7 +1481,9 @@ mod tests {
         let rows = vec![
             vec![QueryValue::Int(1)], // Only 1 value, but 2 columns
         ];
-        let result = adapter.bulk_insert("test_table", &columns, &rows, None).await;
+        let result = adapter
+            .bulk_insert("test_table", &columns, &rows, None)
+            .await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), DataError::Config(_)));
     }
@@ -1448,7 +1523,9 @@ mod tests {
     async fn test_bulk_delete_not_connected() {
         let adapter = OracleAdapter::new();
         let where_clauses = vec!["id = 1".to_string()];
-        let result = adapter.bulk_delete("test_table", &where_clauses, None).await;
+        let result = adapter
+            .bulk_delete("test_table", &where_clauses, None)
+            .await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), DataError::Connection(_)));
     }

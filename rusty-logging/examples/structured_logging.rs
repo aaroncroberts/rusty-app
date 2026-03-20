@@ -1,7 +1,6 @@
 /// Structured logging with JSON output example
 ///
 /// Run with: cargo run --example structured_logging
-
 use rusty_logging::LoggingConfig;
 use tracing::{info, instrument};
 

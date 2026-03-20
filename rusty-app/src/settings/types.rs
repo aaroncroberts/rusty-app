@@ -1,6 +1,6 @@
 //! Settings type definitions
 
-use rusty_data::adapter::ConnectionConfig;
+use arni::ConnectionConfig;
 use serde::{Deserialize, Serialize};
 
 /// Application settings

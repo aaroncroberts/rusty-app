@@ -105,7 +105,9 @@ async fn test_sqlite_execute_query() -> Result<()> {
 
     // Create test table
     info!("Creating test table");
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE test_users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL,
@@ -113,20 +115,28 @@ async fn test_sqlite_execute_query() -> Result<()> {
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             is_active INTEGER DEFAULT 1
         )
-    ").await?;
+    ",
+        )
+        .await?;
 
     // Insert test data
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         INSERT INTO test_users (username, email) VALUES
         ('alice', 'alice@example.com'),
         ('bob', 'bob@example.com'),
         ('charlie', 'charlie@example.com')
-    ").await?;
+    ",
+        )
+        .await?;
     debug!("Test data inserted");
 
     // Query test data
     info!("Testing execute_query");
-    let result = adapter.execute_query("SELECT * FROM test_users ORDER BY id").await?;
+    let result = adapter
+        .execute_query("SELECT * FROM test_users ORDER BY id")
+        .await?;
 
     assert_eq!(result.columns.len(), 5);
     assert_eq!(result.rows.len(), 3);
@@ -154,8 +164,12 @@ async fn test_sqlite_list_tables() -> Result<()> {
 
     // Create test tables
     info!("Creating test tables");
-    adapter.execute_query("CREATE TABLE test_users (id INTEGER PRIMARY KEY)").await?;
-    adapter.execute_query("CREATE TABLE test_products (id INTEGER PRIMARY KEY)").await?;
+    adapter
+        .execute_query("CREATE TABLE test_users (id INTEGER PRIMARY KEY)")
+        .await?;
+    adapter
+        .execute_query("CREATE TABLE test_products (id INTEGER PRIMARY KEY)")
+        .await?;
     debug!("Test tables created");
 
     // List tables
@@ -253,7 +267,9 @@ async fn test_sqlite_get_table_metadata() -> Result<()> {
 
     // Insert some rows for row count
     adapter
-        .execute_query("INSERT INTO test_sqlite_metadata_table (name) VALUES ('test1'), ('test2'), ('test3')")
+        .execute_query(
+            "INSERT INTO test_sqlite_metadata_table (name) VALUES ('test1'), ('test2'), ('test3')",
+        )
         .await?;
 
     // Get table metadata
@@ -351,8 +367,12 @@ async fn test_sqlite_get_foreign_keys() -> Result<()> {
     }
 
     // Drop tables if they exist (cleanup from previous failed runs)
-    let _ = adapter.execute_query("DROP TABLE IF EXISTS test_sqlite_fk_child").await;
-    let _ = adapter.execute_query("DROP TABLE IF EXISTS test_sqlite_fk_parent").await;
+    let _ = adapter
+        .execute_query("DROP TABLE IF EXISTS test_sqlite_fk_child")
+        .await;
+    let _ = adapter
+        .execute_query("DROP TABLE IF EXISTS test_sqlite_fk_parent")
+        .await;
 
     // Create parent and child tables with FK
     info!("Creating tables with foreign key");
@@ -577,7 +597,10 @@ async fn test_sqlite_bulk_insert() -> Result<()> {
         .await?;
 
     assert_eq!(result.rows.len(), 4);
-    assert_eq!(result.columns, vec!["id", "name", "email", "active", "score"]);
+    assert_eq!(
+        result.columns,
+        vec!["id", "name", "email", "active", "score"]
+    );
     debug!("Data verification successful");
 
     adapter.disconnect().await?;
@@ -636,7 +659,10 @@ async fn test_sqlite_bulk_update() -> Result<()> {
     update1.insert("score".to_string(), QueryValue::Int(100));
 
     let mut update2 = HashMap::new();
-    update2.insert("status".to_string(), QueryValue::Text("completed".to_string()));
+    update2.insert(
+        "status".to_string(),
+        QueryValue::Text("completed".to_string()),
+    );
 
     let updates = vec![
         (update1, "id = 1".to_string()),
@@ -733,7 +759,10 @@ async fn test_sqlite_bulk_delete() -> Result<()> {
 
     assert_eq!(result.rows.len(), 3);
     // Should have IDs 1, 3, 5 remaining
-    debug!("Delete verification successful: {} rows remain", result.rows.len());
+    debug!(
+        "Delete verification successful: {} rows remain",
+        result.rows.len()
+    );
 
     adapter.disconnect().await?;
     cleanup_db_file(&db_path);

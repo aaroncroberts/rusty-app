@@ -86,9 +86,7 @@ pub fn build_logging_config(
 }
 
 /// Convert settings RotationPolicy to rusty-logging RotationPolicy
-fn convert_rotation_policy(
-    policy: RotationPolicy,
-) -> rusty_logging::config::RotationPolicy {
+fn convert_rotation_policy(policy: RotationPolicy) -> rusty_logging::config::RotationPolicy {
     match policy {
         RotationPolicy::Daily => rusty_logging::config::RotationPolicy::Daily,
         RotationPolicy::Hourly => rusty_logging::config::RotationPolicy::Hourly,

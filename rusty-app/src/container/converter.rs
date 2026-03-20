@@ -1,7 +1,7 @@
 //! Converter for transforming ContainerInfo into ConnectionConfig
 
 use super::types::ContainerInfo;
-use rusty_data::adapter::{ConnectionConfig, DatabaseType};
+use arni::{ConnectionConfig, DatabaseType};
 use std::collections::HashMap;
 
 /// Container credentials for local development containers
@@ -40,6 +40,7 @@ impl ContainerCredentials {
                 password: "test_password",
                 database: "XE", // SID for Oracle XE
             },
+            DatabaseType::DuckDB => unreachable!("DuckDB not used in rusty-app"),
             DatabaseType::SQLite => Self {
                 username: "",
                 password: "",
@@ -122,6 +123,7 @@ pub fn container_to_connection(container: &ContainerInfo) -> Option<ConnectionCo
             DatabaseType::SQLServer => "SQL Server",
             DatabaseType::Oracle => "Oracle",
             DatabaseType::SQLite => "SQLite",
+            DatabaseType::DuckDB => unreachable!("DuckDB not used in rusty-app"),
         }
     );
 
@@ -136,6 +138,7 @@ pub fn container_to_connection(container: &ContainerInfo) -> Option<ConnectionCo
         username: Some(credentials.username.to_string()),
         use_ssl: false, // Local containers don't use SSL
         parameters: HashMap::new(),
+        pool_config: None,
     })
 }
 
@@ -356,6 +359,7 @@ mod tests {
             username: Some("test_user".to_string()),
             use_ssl: false,
             parameters: HashMap::new(),
+            pool_config: None,
         }];
 
         let synced = sync_connections_with_containers(&containers, &existing);
@@ -378,6 +382,7 @@ mod tests {
             username: Some("prod_user".to_string()),
             use_ssl: true,
             parameters: HashMap::new(),
+            pool_config: None,
         }];
 
         let synced = sync_connections_with_containers(&containers, &existing);
@@ -413,6 +418,7 @@ mod tests {
                 username: Some("prod_user".to_string()),
                 use_ssl: true,
                 parameters: HashMap::new(),
+                pool_config: None,
             },
             ConnectionConfig {
                 id: "local-oracle".to_string(),
@@ -424,6 +430,7 @@ mod tests {
                 username: Some("test_user".to_string()),
                 use_ssl: false,
                 parameters: HashMap::new(),
+                pool_config: None,
             },
         ];
 
@@ -458,6 +465,7 @@ mod tests {
             username: Some("test_user".to_string()),
             use_ssl: false,
             parameters: HashMap::new(),
+            pool_config: None,
         }];
 
         let synced = sync_connections_with_containers(&containers, &existing);

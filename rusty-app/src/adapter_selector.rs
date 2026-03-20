@@ -7,7 +7,7 @@ use crate::button_styles;
 use crate::theme::ThemeColors;
 use iced::widget::{button, column, container, pick_list, row, text};
 use iced::{Border, Element, Fill};
-use rusty_data::adapter::DatabaseType;
+use arni::DatabaseType;
 
 /// Wrapper for DatabaseType to implement Display for the picker
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +34,7 @@ impl std::fmt::Display for DisplayableDatabaseType {
             DatabaseType::MongoDB => write!(f, "MongoDB"),
             DatabaseType::SQLServer => write!(f, "SQL Server"),
             DatabaseType::Oracle => write!(f, "Oracle"),
+            DatabaseType::DuckDB => unreachable!("DuckDB not used in rusty-app"),
         }
     }
 }

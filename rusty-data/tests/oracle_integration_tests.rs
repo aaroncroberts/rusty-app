@@ -98,7 +98,9 @@ async fn test_oracle_execute_query() -> Result<()> {
 
     // Create test table
     info!("Creating test table");
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE TEST_QUERY_USERS (
             ID NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             USERNAME VARCHAR2(50),
@@ -106,21 +108,29 @@ async fn test_oracle_execute_query() -> Result<()> {
             CREATED_AT TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             IS_ACTIVE NUMBER(1) DEFAULT 1
         )
-    ").await?;
+    ",
+        )
+        .await?;
 
     // Insert test data
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         INSERT ALL
         INTO TEST_QUERY_USERS (USERNAME, EMAIL) VALUES ('alice', 'alice@example.com')
         INTO TEST_QUERY_USERS (USERNAME, EMAIL) VALUES ('bob', 'bob@example.com')
         INTO TEST_QUERY_USERS (USERNAME, EMAIL) VALUES ('charlie', 'charlie@example.com')
         SELECT * FROM DUAL
-    ").await?;
+    ",
+        )
+        .await?;
     debug!("Test data inserted");
 
     // Query test data
     info!("Testing execute_query");
-    let result = adapter.execute_query("SELECT * FROM TEST_QUERY_USERS ORDER BY ID").await?;
+    let result = adapter
+        .execute_query("SELECT * FROM TEST_QUERY_USERS ORDER BY ID")
+        .await?;
 
     assert_eq!(result.columns.len(), 5);
     assert_eq!(result.rows.len(), 3);
@@ -164,9 +174,15 @@ async fn test_oracle_list_tables() -> Result<()> {
 
     // Create test tables
     info!("Creating test tables");
-    adapter.execute_query("CREATE TABLE TEST_LIST_USERS (ID NUMBER PRIMARY KEY)").await?;
-    adapter.execute_query("CREATE TABLE TEST_LIST_PRODUCTS (ID NUMBER PRIMARY KEY)").await?;
-    adapter.execute_query("CREATE TABLE TEST_LIST_ORDERS (ID NUMBER PRIMARY KEY)").await?;
+    adapter
+        .execute_query("CREATE TABLE TEST_LIST_USERS (ID NUMBER PRIMARY KEY)")
+        .await?;
+    adapter
+        .execute_query("CREATE TABLE TEST_LIST_PRODUCTS (ID NUMBER PRIMARY KEY)")
+        .await?;
+    adapter
+        .execute_query("CREATE TABLE TEST_LIST_ORDERS (ID NUMBER PRIMARY KEY)")
+        .await?;
     debug!("Test tables created");
 
     // List tables
@@ -181,7 +197,9 @@ async fn test_oracle_list_tables() -> Result<()> {
     // Cleanup
     info!("Cleaning up test tables");
     adapter.execute_query("DROP TABLE TEST_LIST_USERS").await?;
-    adapter.execute_query("DROP TABLE TEST_LIST_PRODUCTS").await?;
+    adapter
+        .execute_query("DROP TABLE TEST_LIST_PRODUCTS")
+        .await?;
     adapter.execute_query("DROP TABLE TEST_LIST_ORDERS").await?;
 
     adapter.disconnect().await?;
@@ -198,13 +216,17 @@ async fn test_oracle_describe_table() -> Result<()> {
 
     // Create test table
     info!("Creating test table");
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE TEST_DESCRIBE_TABLE (
             ID NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             USERNAME VARCHAR2(50) NOT NULL,
             EMAIL VARCHAR2(100)
         )
-    ").await?;
+    ",
+        )
+        .await?;
     debug!("Test table created");
 
     // Describe table
@@ -215,14 +237,20 @@ async fn test_oracle_describe_table() -> Result<()> {
     assert_eq!(table_info.columns.len(), 3);
 
     // Verify column details
-    let username_col = table_info.columns.iter().find(|c| c.name == "USERNAME").unwrap();
+    let username_col = table_info
+        .columns
+        .iter()
+        .find(|c| c.name == "USERNAME")
+        .unwrap();
     assert!(!username_col.nullable);
 
     debug!("Table schema validated");
 
     // Cleanup
     info!("Cleaning up test table");
-    adapter.execute_query("DROP TABLE TEST_DESCRIBE_TABLE").await?;
+    adapter
+        .execute_query("DROP TABLE TEST_DESCRIBE_TABLE")
+        .await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_oracle_describe_table");
@@ -238,55 +266,80 @@ async fn test_oracle_crud_operations() -> Result<()> {
 
     // CREATE table and INSERT data
     info!("Creating test table");
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE TEST_CRUD_USERS (
             ID NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             USERNAME VARCHAR2(50) NOT NULL,
             EMAIL VARCHAR2(100),
             STATUS VARCHAR2(20) DEFAULT 'active'
         )
-    ").await?;
+    ",
+        )
+        .await?;
 
     info!("Testing INSERT");
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         INSERT ALL
         INTO TEST_CRUD_USERS (USERNAME, EMAIL) VALUES ('alice', 'alice@example.com')
         INTO TEST_CRUD_USERS (USERNAME, EMAIL) VALUES ('bob', 'bob@example.com')
         SELECT * FROM DUAL
-    ").await?;
+    ",
+        )
+        .await?;
     debug!("Rows inserted");
 
     // READ
     info!("Testing SELECT");
-    let result = adapter.execute_query("SELECT * FROM TEST_CRUD_USERS ORDER BY ID").await?;
+    let result = adapter
+        .execute_query("SELECT * FROM TEST_CRUD_USERS ORDER BY ID")
+        .await?;
     assert_eq!(result.rows.len(), 2);
     debug!("Found {} rows", result.rows.len());
 
     // UPDATE
     info!("Testing UPDATE");
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         UPDATE TEST_CRUD_USERS
         SET STATUS = 'inactive'
         WHERE USERNAME = 'alice'
-    ").await?;
+    ",
+        )
+        .await?;
     debug!("Row updated");
 
     // Verify update
-    let verify_result = adapter.execute_query("
+    let verify_result = adapter
+        .execute_query(
+            "
         SELECT STATUS FROM TEST_CRUD_USERS WHERE USERNAME = 'alice'
-    ").await?;
+    ",
+        )
+        .await?;
     assert_eq!(verify_result.rows.len(), 1);
     debug!("Update verified");
 
     // DELETE
     info!("Testing DELETE");
-    adapter.execute_query("DELETE FROM TEST_CRUD_USERS WHERE USERNAME = 'bob'").await?;
+    adapter
+        .execute_query("DELETE FROM TEST_CRUD_USERS WHERE USERNAME = 'bob'")
+        .await?;
     debug!("Row deleted");
 
     // Verify deletion
-    let final_result = adapter.execute_query("SELECT * FROM TEST_CRUD_USERS").await?;
+    let final_result = adapter
+        .execute_query("SELECT * FROM TEST_CRUD_USERS")
+        .await?;
     assert_eq!(final_result.rows.len(), 1);
-    debug!("Deletion verified: {} row remaining", final_result.rows.len());
+    debug!(
+        "Deletion verified: {} row remaining",
+        final_result.rows.len()
+    );
 
     // Cleanup
     info!("Cleaning up test table");
@@ -329,7 +382,10 @@ async fn test_oracle_get_database_metadata() -> Result<()> {
 
     assert_eq!(db_meta.name, "FREE");
     debug!("Database encoding: {:?}", db_meta.encoding);
-    debug!("Database log mode: {:?}", db_meta.extra_info.get("log_mode"));
+    debug!(
+        "Database log mode: {:?}",
+        db_meta.extra_info.get("log_mode")
+    );
 
     adapter.disconnect().await?;
     info!("Test completed: test_oracle_get_database_metadata");
@@ -405,10 +461,7 @@ async fn test_oracle_get_indexes() -> Result<()> {
         .await?;
 
     adapter
-        .execute_query(&format!(
-            "CREATE INDEX idx_name ON {}(name)",
-            table_name
-        ))
+        .execute_query(&format!("CREATE INDEX idx_name ON {}(name)", table_name))
         .await?;
 
     // Get indexes
@@ -575,7 +628,10 @@ async fn test_oracle_list_stored_procedures() -> Result<()> {
     assert!(test_proc.is_some());
     let proc = test_proc.unwrap();
     assert_eq!(proc.language, Some("PL/SQL".to_string()));
-    debug!("Found procedure: {} (language: {:?})", proc.name, proc.language);
+    debug!(
+        "Found procedure: {} (language: {:?})",
+        proc.name, proc.language
+    );
 
     // Cleanup
     adapter
@@ -593,26 +649,33 @@ async fn test_oracle_bulk_insert() -> Result<()> {
     info!("=== Starting test: test_oracle_bulk_insert ===");
     let test_start = std::time::Instant::now();
 
-    let mut adapter = setup().await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to setup Oracle adapter");
-            e
-        })?;
-    debug!("Oracle adapter setup completed in {:?}", test_start.elapsed());
+    let mut adapter = setup().await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to setup Oracle adapter");
+        e
+    })?;
+    debug!(
+        "Oracle adapter setup completed in {:?}",
+        test_start.elapsed()
+    );
 
     // Create test table with detailed logging
     info!("Creating test table: test_bulk_insert");
     let create_start = std::time::Instant::now();
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE test_bulk_insert (
             id NUMBER PRIMARY KEY,
             name VARCHAR2(100),
             value NUMBER
         )
-    ").await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to create Oracle test table");
-        e
-    })?;
+    ",
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to create Oracle test table");
+            e
+        })?;
     debug!("Oracle table created in {:?}", create_start.elapsed());
 
     // Prepare bulk insert data with logging
@@ -635,13 +698,18 @@ async fn test_oracle_bulk_insert() -> Result<()> {
             QueryValue::Int(300),
         ],
     ];
-    info!("Prepared {} rows for Oracle INSERT ALL with {} columns", rows.len(), columns.len());
+    info!(
+        "Prepared {} rows for Oracle INSERT ALL with {} columns",
+        rows.len(),
+        columns.len()
+    );
     debug!("Columns: {:?}", columns);
 
     // Execute bulk insert with timing
     info!("Executing Oracle INSERT ALL bulk operation");
     let insert_start = std::time::Instant::now();
-    let rows_inserted = adapter.bulk_insert("test_bulk_insert", &columns, &rows, None)
+    let rows_inserted = adapter
+        .bulk_insert("test_bulk_insert", &columns, &rows, None)
         .await
         .map_err(|e| {
             tracing::error!(
@@ -661,21 +729,37 @@ async fn test_oracle_bulk_insert() -> Result<()> {
         rows_inserted as f64 / insert_duration.as_secs_f64()
     );
 
-    assert_eq!(rows_inserted, 3, "Expected 3 rows inserted, got {}", rows_inserted);
+    assert_eq!(
+        rows_inserted, 3,
+        "Expected 3 rows inserted, got {}",
+        rows_inserted
+    );
 
     // Verify data was inserted with detailed checking
     info!("Verifying Oracle inserted data");
     let verify_start = std::time::Instant::now();
-    let result = adapter.execute_query("SELECT * FROM test_bulk_insert ORDER BY id")
+    let result = adapter
+        .execute_query("SELECT * FROM test_bulk_insert ORDER BY id")
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to verify Oracle inserted data");
             e
         })?;
-    debug!("Oracle verification query completed in {:?}", verify_start.elapsed());
+    debug!(
+        "Oracle verification query completed in {:?}",
+        verify_start.elapsed()
+    );
 
-    assert_eq!(result.rows.len(), 3, "Expected 3 rows in result, got {}", result.rows.len());
-    info!("✓ Oracle data verification successful: {} rows found", result.rows.len());
+    assert_eq!(
+        result.rows.len(),
+        3,
+        "Expected 3 rows in result, got {}",
+        result.rows.len()
+    );
+    info!(
+        "✓ Oracle data verification successful: {} rows found",
+        result.rows.len()
+    );
 
     // Log sample of inserted data
     for (idx, row) in result.rows.iter().take(3).enumerate() {
@@ -697,7 +781,10 @@ async fn test_oracle_bulk_insert() -> Result<()> {
     })?;
 
     let total_duration = test_start.elapsed();
-    info!("=== Test completed: test_oracle_bulk_insert in {:?} ===", total_duration);
+    info!(
+        "=== Test completed: test_oracle_bulk_insert in {:?} ===",
+        total_duration
+    );
     Ok(())
 }
 
@@ -707,52 +794,73 @@ async fn test_oracle_bulk_update() -> Result<()> {
     info!("=== Starting test: test_oracle_bulk_update ===");
     let test_start = std::time::Instant::now();
 
-    let mut adapter = setup().await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to setup Oracle adapter");
-            e
-        })?;
-    debug!("Oracle adapter setup completed in {:?}", test_start.elapsed());
+    let mut adapter = setup().await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to setup Oracle adapter");
+        e
+    })?;
+    debug!(
+        "Oracle adapter setup completed in {:?}",
+        test_start.elapsed()
+    );
 
     // Create test table with logging
     info!("Creating Oracle test table: test_bulk_update");
     let create_start = std::time::Instant::now();
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE test_bulk_update (
             id NUMBER PRIMARY KEY,
             name VARCHAR2(100),
             status VARCHAR2(50)
         )
-    ").await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to create Oracle test table");
-        e
-    })?;
+    ",
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to create Oracle test table");
+            e
+        })?;
     debug!("Oracle table created in {:?}", create_start.elapsed());
 
     // Insert initial test data
     info!("Inserting initial Oracle test data (3 rows)");
     let insert_start = std::time::Instant::now();
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         INSERT ALL
             INTO test_bulk_update (id, name, status) VALUES (1, 'Alice', 'active')
             INTO test_bulk_update (id, name, status) VALUES (2, 'Bob', 'active')
             INTO test_bulk_update (id, name, status) VALUES (3, 'Charlie', 'active')
         SELECT * FROM DUAL
-    ").await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to insert Oracle initial test data");
-        e
-    })?;
-    debug!("Oracle initial data inserted in {:?}", insert_start.elapsed());
+    ",
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to insert Oracle initial test data");
+            e
+        })?;
+    debug!(
+        "Oracle initial data inserted in {:?}",
+        insert_start.elapsed()
+    );
 
     // Prepare bulk update operations with logging
     use rusty_data::adapter::QueryValue;
     use std::collections::HashMap;
 
     let mut update1 = HashMap::new();
-    update1.insert("status".to_string(), QueryValue::Text("inactive".to_string()));
+    update1.insert(
+        "status".to_string(),
+        QueryValue::Text("inactive".to_string()),
+    );
 
     let mut update2 = HashMap::new();
-    update2.insert("status".to_string(), QueryValue::Text("suspended".to_string()));
+    update2.insert(
+        "status".to_string(),
+        QueryValue::Text("suspended".to_string()),
+    );
 
     let updates = vec![
         (update1, "id = 1".to_string()),
@@ -760,12 +868,16 @@ async fn test_oracle_bulk_update() -> Result<()> {
     ];
 
     info!("Prepared {} Oracle update operations", updates.len());
-    debug!("Update operations: {} updates with WHERE conditions", updates.len());
+    debug!(
+        "Update operations: {} updates with WHERE conditions",
+        updates.len()
+    );
 
     // Execute bulk update with timing
     info!("Executing Oracle bulk_update operation");
     let update_start = std::time::Instant::now();
-    let rows_updated = adapter.bulk_update("test_bulk_update", &updates, None)
+    let rows_updated = adapter
+        .bulk_update("test_bulk_update", &updates, None)
         .await
         .map_err(|e| {
             tracing::error!(
@@ -780,25 +892,42 @@ async fn test_oracle_bulk_update() -> Result<()> {
 
     info!(
         "Oracle bulk update completed: {} rows in {:?}",
-        rows_updated,
-        update_duration
+        rows_updated, update_duration
     );
 
-    assert_eq!(rows_updated, 2, "Expected 2 rows updated, got {}", rows_updated);
+    assert_eq!(
+        rows_updated, 2,
+        "Expected 2 rows updated, got {}",
+        rows_updated
+    );
 
     // Verify updates with detailed checking
     info!("Verifying Oracle updated data");
     let verify_start = std::time::Instant::now();
-    let result = adapter.execute_query("SELECT id, name, status FROM test_bulk_update WHERE status != 'active' ORDER BY id")
+    let result = adapter
+        .execute_query(
+            "SELECT id, name, status FROM test_bulk_update WHERE status != 'active' ORDER BY id",
+        )
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to verify Oracle updated data");
             e
         })?;
-    debug!("Oracle verification query completed in {:?}", verify_start.elapsed());
+    debug!(
+        "Oracle verification query completed in {:?}",
+        verify_start.elapsed()
+    );
 
-    assert_eq!(result.rows.len(), 2, "Expected 2 updated rows in result, got {}", result.rows.len());
-    info!("✓ Oracle update verification successful: {} rows updated as expected", result.rows.len());
+    assert_eq!(
+        result.rows.len(),
+        2,
+        "Expected 2 updated rows in result, got {}",
+        result.rows.len()
+    );
+    info!(
+        "✓ Oracle update verification successful: {} rows updated as expected",
+        result.rows.len()
+    );
 
     // Log updated rows
     for (idx, row) in result.rows.iter().enumerate() {
@@ -820,7 +949,10 @@ async fn test_oracle_bulk_update() -> Result<()> {
     })?;
 
     let total_duration = test_start.elapsed();
-    info!("=== Test completed: test_oracle_bulk_update in {:?} ===", total_duration);
+    info!(
+        "=== Test completed: test_oracle_bulk_update in {:?} ===",
+        total_duration
+    );
     Ok(())
 }
 
@@ -830,31 +962,40 @@ async fn test_oracle_bulk_delete() -> Result<()> {
     info!("=== Starting test: test_oracle_bulk_delete ===");
     let test_start = std::time::Instant::now();
 
-    let mut adapter = setup().await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to setup Oracle adapter");
-            e
-        })?;
-    debug!("Oracle adapter setup completed in {:?}", test_start.elapsed());
+    let mut adapter = setup().await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to setup Oracle adapter");
+        e
+    })?;
+    debug!(
+        "Oracle adapter setup completed in {:?}",
+        test_start.elapsed()
+    );
 
     // Create test table with logging
     info!("Creating Oracle test table: test_bulk_delete");
     let create_start = std::time::Instant::now();
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE test_bulk_delete (
             id NUMBER PRIMARY KEY,
             name VARCHAR2(100)
         )
-    ").await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to create Oracle test table");
-        e
-    })?;
+    ",
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to create Oracle test table");
+            e
+        })?;
     debug!("Oracle table created in {:?}", create_start.elapsed());
 
     // Insert initial test data
     info!("Inserting initial Oracle test data (5 rows)");
     let insert_start = std::time::Instant::now();
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         INSERT ALL
             INTO test_bulk_delete (id, name) VALUES (1, 'Alice')
             INTO test_bulk_delete (id, name) VALUES (2, 'Bob')
@@ -862,11 +1003,17 @@ async fn test_oracle_bulk_delete() -> Result<()> {
             INTO test_bulk_delete (id, name) VALUES (4, 'David')
             INTO test_bulk_delete (id, name) VALUES (5, 'Eve')
         SELECT * FROM DUAL
-    ").await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to insert Oracle initial test data");
-        e
-    })?;
-    debug!("Oracle initial data inserted in {:?}", insert_start.elapsed());
+    ",
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to insert Oracle initial test data");
+            e
+        })?;
+    debug!(
+        "Oracle initial data inserted in {:?}",
+        insert_start.elapsed()
+    );
 
     // Prepare bulk delete with logging
     let where_clauses = vec![
@@ -881,7 +1028,8 @@ async fn test_oracle_bulk_delete() -> Result<()> {
     // Execute bulk delete with timing
     info!("Executing Oracle bulk_delete operation");
     let delete_start = std::time::Instant::now();
-    let rows_deleted = adapter.bulk_delete("test_bulk_delete", &where_clauses, None)
+    let rows_deleted = adapter
+        .bulk_delete("test_bulk_delete", &where_clauses, None)
         .await
         .map_err(|e| {
             tracing::error!(
@@ -896,25 +1044,40 @@ async fn test_oracle_bulk_delete() -> Result<()> {
 
     info!(
         "Oracle bulk delete completed: {} rows in {:?}",
-        rows_deleted,
-        delete_duration
+        rows_deleted, delete_duration
     );
 
-    assert_eq!(rows_deleted, 3, "Expected 3 rows deleted, got {}", rows_deleted);
+    assert_eq!(
+        rows_deleted, 3,
+        "Expected 3 rows deleted, got {}",
+        rows_deleted
+    );
 
     // Verify deletions with detailed checking
     info!("Verifying Oracle remaining data after delete");
     let verify_start = std::time::Instant::now();
-    let result = adapter.execute_query("SELECT id, name FROM test_bulk_delete ORDER BY id")
+    let result = adapter
+        .execute_query("SELECT id, name FROM test_bulk_delete ORDER BY id")
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to verify Oracle remaining data");
             e
         })?;
-    debug!("Oracle verification query completed in {:?}", verify_start.elapsed());
+    debug!(
+        "Oracle verification query completed in {:?}",
+        verify_start.elapsed()
+    );
 
-    assert_eq!(result.rows.len(), 2, "Expected 2 remaining rows, got {}", result.rows.len());
-    info!("✓ Oracle delete verification successful: {} rows remaining", result.rows.len());
+    assert_eq!(
+        result.rows.len(),
+        2,
+        "Expected 2 remaining rows, got {}",
+        result.rows.len()
+    );
+    info!(
+        "✓ Oracle delete verification successful: {} rows remaining",
+        result.rows.len()
+    );
 
     // Log remaining rows
     for (idx, row) in result.rows.iter().enumerate() {
@@ -936,7 +1099,10 @@ async fn test_oracle_bulk_delete() -> Result<()> {
     })?;
 
     let total_duration = test_start.elapsed();
-    info!("=== Test completed: test_oracle_bulk_delete in {:?} ===", total_duration);
+    info!(
+        "=== Test completed: test_oracle_bulk_delete in {:?} ===",
+        total_duration
+    );
     Ok(())
 }
 
@@ -946,25 +1112,32 @@ async fn test_oracle_bulk_insert_large_batch() -> Result<()> {
     info!("=== Starting test: test_oracle_bulk_insert_large_batch ===");
     let test_start = std::time::Instant::now();
 
-    let mut adapter = setup().await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to setup Oracle adapter");
-            e
-        })?;
-    debug!("Oracle adapter setup completed in {:?}", test_start.elapsed());
+    let mut adapter = setup().await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to setup Oracle adapter");
+        e
+    })?;
+    debug!(
+        "Oracle adapter setup completed in {:?}",
+        test_start.elapsed()
+    );
 
     // Create test table with logging
     info!("Creating Oracle test table: test_bulk_large");
     let create_start = std::time::Instant::now();
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE test_bulk_large (
             id NUMBER PRIMARY KEY,
             value NUMBER
         )
-    ").await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to create Oracle test table");
-        e
-    })?;
+    ",
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to create Oracle test table");
+            e
+        })?;
     debug!("Oracle table created in {:?}", create_start.elapsed());
 
     // Prepare large batch (1000 rows) with logging
@@ -973,17 +1146,18 @@ async fn test_oracle_bulk_insert_large_batch() -> Result<()> {
     let mut rows = Vec::new();
     let prep_start = std::time::Instant::now();
     for i in 1..=1000 {
-        rows.push(vec![
-            QueryValue::Int(i),
-            QueryValue::Int(i * 10),
-        ]);
+        rows.push(vec![QueryValue::Int(i), QueryValue::Int(i * 10)]);
     }
     debug!("Prepared {} rows in {:?}", rows.len(), prep_start.elapsed());
 
     // Execute bulk insert with detailed timing
-    info!("Executing Oracle INSERT ALL with {} rows (performance test)", rows.len());
+    info!(
+        "Executing Oracle INSERT ALL with {} rows (performance test)",
+        rows.len()
+    );
     let insert_start = std::time::Instant::now();
-    let rows_inserted = adapter.bulk_insert("test_bulk_large", &columns, &rows, None)
+    let rows_inserted = adapter
+        .bulk_insert("test_bulk_large", &columns, &rows, None)
         .await
         .map_err(|e| {
             tracing::error!(
@@ -1005,28 +1179,47 @@ async fn test_oracle_bulk_insert_large_batch() -> Result<()> {
         insert_duration.as_millis() as f64 / rows_inserted as f64
     );
 
-    assert_eq!(rows_inserted, 1000, "Expected 1000 rows inserted, got {}", rows_inserted);
+    assert_eq!(
+        rows_inserted, 1000,
+        "Expected 1000 rows inserted, got {}",
+        rows_inserted
+    );
 
     // Verify count with detailed logging
     info!("Verifying Oracle row count");
     let verify_start = std::time::Instant::now();
-    let result = adapter.execute_query("SELECT COUNT(*) as cnt FROM test_bulk_large")
+    let result = adapter
+        .execute_query("SELECT COUNT(*) as cnt FROM test_bulk_large")
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to verify Oracle row count");
             e
         })?;
-    debug!("Oracle verification query completed in {:?}", verify_start.elapsed());
+    debug!(
+        "Oracle verification query completed in {:?}",
+        verify_start.elapsed()
+    );
 
-    assert_eq!(result.rows.len(), 1, "Expected 1 count row, got {}", result.rows.len());
-    info!("✓ Oracle large batch verification successful: all {} rows inserted", rows_inserted);
+    assert_eq!(
+        result.rows.len(),
+        1,
+        "Expected 1 count row, got {}",
+        result.rows.len()
+    );
+    info!(
+        "✓ Oracle large batch verification successful: all {} rows inserted",
+        rows_inserted
+    );
 
     // Performance summary
     info!("Oracle Performance metrics:");
     info!("  - Total rows: {}", rows_inserted);
     info!("  - Insert time: {:?}", insert_duration);
     info!("  - Throughput: {:.2} rows/sec", rows_per_sec);
-    info!("  - Latency: {:.2} ms/row", insert_duration.as_millis() as f64 / rows_inserted as f64);
+    info!(
+        "  - Latency: {:.2} ms/row",
+        insert_duration.as_millis() as f64 / rows_inserted as f64
+    );
 
     // Cleanup with error handling
     info!("Cleaning up Oracle test table");
@@ -1043,7 +1236,10 @@ async fn test_oracle_bulk_insert_large_batch() -> Result<()> {
     })?;
 
     let total_duration = test_start.elapsed();
-    info!("=== Test completed: test_oracle_bulk_insert_large_batch in {:?} ===", total_duration);
+    info!(
+        "=== Test completed: test_oracle_bulk_insert_large_batch in {:?} ===",
+        total_duration
+    );
     Ok(())
 }
 

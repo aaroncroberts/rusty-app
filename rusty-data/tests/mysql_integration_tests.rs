@@ -44,9 +44,16 @@ async fn ensure_test_database() -> Result<()> {
     info!("Creating MySQL test database: {}", TEST_DB_NAME);
 
     // Create database if it doesn't exist
-    let _ = adapter.execute_query(&format!("CREATE DATABASE IF NOT EXISTS {}", TEST_DB_NAME)).await?;
+    let _ = adapter
+        .execute_query(&format!("CREATE DATABASE IF NOT EXISTS {}", TEST_DB_NAME))
+        .await?;
     // Grant all privileges to test_user
-    let _ = adapter.execute_query(&format!("GRANT ALL PRIVILEGES ON {}.* TO 'test_user'@'%'", TEST_DB_NAME)).await?;
+    let _ = adapter
+        .execute_query(&format!(
+            "GRANT ALL PRIVILEGES ON {}.* TO 'test_user'@'%'",
+            TEST_DB_NAME
+        ))
+        .await?;
 
     adapter.disconnect().await?;
     debug!("MySQL test database ready: {}", TEST_DB_NAME);
@@ -94,7 +101,9 @@ async fn test_mysql_execute_query() -> Result<()> {
 
     // Create test table
     info!("Creating test table");
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE test_query_users (
             id INT AUTO_INCREMENT PRIMARY KEY,
             username VARCHAR(50),
@@ -102,20 +111,28 @@ async fn test_mysql_execute_query() -> Result<()> {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             is_active BOOLEAN DEFAULT true
         )
-    ").await?;
+    ",
+        )
+        .await?;
 
     // Insert test data
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         INSERT INTO test_query_users (username, email) VALUES
         ('alice', 'alice@example.com'),
         ('bob', 'bob@example.com'),
         ('charlie', 'charlie@example.com')
-    ").await?;
+    ",
+        )
+        .await?;
     debug!("Test data inserted");
 
     // Query test data
     info!("Testing execute_query");
-    let result = adapter.execute_query("SELECT * FROM test_query_users ORDER BY id").await?;
+    let result = adapter
+        .execute_query("SELECT * FROM test_query_users ORDER BY id")
+        .await?;
 
     assert_eq!(result.columns.len(), 5);
     assert_eq!(result.rows.len(), 3);
@@ -139,9 +156,15 @@ async fn test_mysql_list_tables() -> Result<()> {
 
     // Create test tables
     info!("Creating test tables");
-    adapter.execute_query("CREATE TABLE test_list_users (id INT AUTO_INCREMENT PRIMARY KEY)").await?;
-    adapter.execute_query("CREATE TABLE test_list_products (id INT AUTO_INCREMENT PRIMARY KEY)").await?;
-    adapter.execute_query("CREATE TABLE test_list_orders (id INT AUTO_INCREMENT PRIMARY KEY)").await?;
+    adapter
+        .execute_query("CREATE TABLE test_list_users (id INT AUTO_INCREMENT PRIMARY KEY)")
+        .await?;
+    adapter
+        .execute_query("CREATE TABLE test_list_products (id INT AUTO_INCREMENT PRIMARY KEY)")
+        .await?;
+    adapter
+        .execute_query("CREATE TABLE test_list_orders (id INT AUTO_INCREMENT PRIMARY KEY)")
+        .await?;
     debug!("Test tables created");
 
     // List tables
@@ -156,7 +179,9 @@ async fn test_mysql_list_tables() -> Result<()> {
     // Cleanup
     info!("Cleaning up test tables");
     adapter.execute_query("DROP TABLE test_list_users").await?;
-    adapter.execute_query("DROP TABLE test_list_products").await?;
+    adapter
+        .execute_query("DROP TABLE test_list_products")
+        .await?;
     adapter.execute_query("DROP TABLE test_list_orders").await?;
 
     adapter.disconnect().await?;
@@ -173,13 +198,17 @@ async fn test_mysql_describe_table() -> Result<()> {
 
     // Create test table
     info!("Creating test table");
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE test_describe_table (
             id INT AUTO_INCREMENT PRIMARY KEY,
             username VARCHAR(50) NOT NULL,
             email VARCHAR(100)
         )
-    ").await?;
+    ",
+        )
+        .await?;
     debug!("Test table created");
 
     // Describe table
@@ -197,7 +226,9 @@ async fn test_mysql_describe_table() -> Result<()> {
 
     // Cleanup
     info!("Cleaning up test table");
-    adapter.execute_query("DROP TABLE test_describe_table").await?;
+    adapter
+        .execute_query("DROP TABLE test_describe_table")
+        .await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_mysql_describe_table");
@@ -254,19 +285,29 @@ async fn test_mysql_get_table_metadata() -> Result<()> {
 
     // Create test table
     info!("Creating test table");
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE test_mysql_metadata_table (
             id INT AUTO_INCREMENT PRIMARY KEY,
             name VARCHAR(100) NOT NULL
         ) ENGINE=InnoDB
-    ").await?;
+    ",
+        )
+        .await?;
 
     // Insert some rows for row count
-    adapter.execute_query("INSERT INTO test_mysql_metadata_table (name) VALUES ('test1'), ('test2'), ('test3')").await?;
+    adapter
+        .execute_query(
+            "INSERT INTO test_mysql_metadata_table (name) VALUES ('test1'), ('test2'), ('test3')",
+        )
+        .await?;
 
     // Get table metadata
     info!("Testing get_table_metadata");
-    let table_meta = adapter.get_table_metadata("test_mysql_metadata_table", None).await?;
+    let table_meta = adapter
+        .get_table_metadata("test_mysql_metadata_table", None)
+        .await?;
 
     assert_eq!(table_meta.name, "test_mysql_metadata_table");
     // size_bytes, row_count may be None for newly created tables
@@ -276,7 +317,9 @@ async fn test_mysql_get_table_metadata() -> Result<()> {
 
     // Cleanup
     info!("Cleaning up test table");
-    adapter.execute_query("DROP TABLE test_mysql_metadata_table").await?;
+    adapter
+        .execute_query("DROP TABLE test_mysql_metadata_table")
+        .await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_mysql_get_table_metadata");
@@ -292,21 +335,31 @@ async fn test_mysql_get_indexes() -> Result<()> {
 
     // Create test table with indexes
     info!("Creating test table with indexes");
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE test_mysql_indexes_table (
             id INT AUTO_INCREMENT PRIMARY KEY,
             email VARCHAR(100) UNIQUE,
             name VARCHAR(100),
             status VARCHAR(50)
         )
-    ").await?;
+    ",
+        )
+        .await?;
 
-    adapter.execute_query("CREATE INDEX idx_name ON test_mysql_indexes_table(name)").await?;
-    adapter.execute_query("CREATE INDEX idx_status ON test_mysql_indexes_table(status)").await?;
+    adapter
+        .execute_query("CREATE INDEX idx_name ON test_mysql_indexes_table(name)")
+        .await?;
+    adapter
+        .execute_query("CREATE INDEX idx_status ON test_mysql_indexes_table(status)")
+        .await?;
 
     // Get indexes
     info!("Testing get_indexes");
-    let indexes = adapter.get_indexes("test_mysql_indexes_table", None).await?;
+    let indexes = adapter
+        .get_indexes("test_mysql_indexes_table", None)
+        .await?;
 
     assert!(indexes.len() >= 3); // PRIMARY KEY, UNIQUE, and our indexes
 
@@ -320,13 +373,17 @@ async fn test_mysql_get_indexes() -> Result<()> {
 
     debug!("Found {} indexes", indexes.len());
     for idx in &indexes {
-        debug!("Index: {} (columns: {:?}, unique: {}, primary: {})",
-            idx.name, idx.columns, idx.is_unique, idx.is_primary);
+        debug!(
+            "Index: {} (columns: {:?}, unique: {}, primary: {})",
+            idx.name, idx.columns, idx.is_unique, idx.is_primary
+        );
     }
 
     // Cleanup
     info!("Cleaning up test table");
-    adapter.execute_query("DROP TABLE test_mysql_indexes_table").await?;
+    adapter
+        .execute_query("DROP TABLE test_mysql_indexes_table")
+        .await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_mysql_get_indexes");
@@ -342,25 +399,35 @@ async fn test_mysql_get_foreign_keys() -> Result<()> {
 
     // Create parent and child tables with FK
     info!("Creating tables with foreign key");
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE test_mysql_fk_parent (
             id INT AUTO_INCREMENT PRIMARY KEY,
             name VARCHAR(100)
         )
-    ").await?;
+    ",
+        )
+        .await?;
 
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE test_mysql_fk_child (
             id INT AUTO_INCREMENT PRIMARY KEY,
             parent_id INT,
             data VARCHAR(100),
             FOREIGN KEY (parent_id) REFERENCES test_mysql_fk_parent(id) ON DELETE CASCADE
         )
-    ").await?;
+    ",
+        )
+        .await?;
 
     // Get foreign keys
     info!("Testing get_foreign_keys");
-    let fks = adapter.get_foreign_keys("test_mysql_fk_child", None).await?;
+    let fks = adapter
+        .get_foreign_keys("test_mysql_fk_child", None)
+        .await?;
 
     assert_eq!(fks.len(), 1);
     let fk = &fks[0];
@@ -369,12 +436,19 @@ async fn test_mysql_get_foreign_keys() -> Result<()> {
     assert!(fk.columns.contains(&"parent_id".to_string()));
     assert!(fk.referenced_columns.contains(&"id".to_string()));
     // on_delete and on_update may not be available from all schemas
-    debug!("Foreign key: {} -> {} (on_delete: {:?})", fk.name, fk.referenced_table, fk.on_delete);
+    debug!(
+        "Foreign key: {} -> {} (on_delete: {:?})",
+        fk.name, fk.referenced_table, fk.on_delete
+    );
 
     // Cleanup
     info!("Cleaning up test tables");
-    adapter.execute_query("DROP TABLE test_mysql_fk_child").await?;
-    adapter.execute_query("DROP TABLE test_mysql_fk_parent").await?;
+    adapter
+        .execute_query("DROP TABLE test_mysql_fk_child")
+        .await?;
+    adapter
+        .execute_query("DROP TABLE test_mysql_fk_parent")
+        .await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_mysql_get_foreign_keys");
@@ -390,18 +464,26 @@ async fn test_mysql_get_views() -> Result<()> {
 
     // Create test table and view
     info!("Creating test table and view");
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE TABLE test_mysql_view_source (
             id INT AUTO_INCREMENT PRIMARY KEY,
             value INT
         )
-    ").await?;
+    ",
+        )
+        .await?;
 
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE VIEW test_mysql_my_view AS
         SELECT id, value * 2 AS doubled
         FROM test_mysql_view_source
-    ").await?;
+    ",
+        )
+        .await?;
 
     // Get views
     info!("Testing get_views");
@@ -413,15 +495,24 @@ async fn test_mysql_get_views() -> Result<()> {
 
     // Get view definition
     info!("Testing get_view_definition");
-    let definition = adapter.get_view_definition("test_mysql_my_view", None).await?;
+    let definition = adapter
+        .get_view_definition("test_mysql_my_view", None)
+        .await?;
     assert!(definition.is_some());
-    assert!(definition.unwrap().to_lowercase().contains("test_mysql_view_source"));
+    assert!(definition
+        .unwrap()
+        .to_lowercase()
+        .contains("test_mysql_view_source"));
     debug!("View definition retrieved");
 
     // Cleanup
     info!("Cleaning up test view and table");
-    adapter.execute_query("DROP VIEW test_mysql_my_view").await?;
-    adapter.execute_query("DROP TABLE test_mysql_view_source").await?;
+    adapter
+        .execute_query("DROP VIEW test_mysql_my_view")
+        .await?;
+    adapter
+        .execute_query("DROP TABLE test_mysql_view_source")
+        .await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_mysql_get_views");
@@ -437,12 +528,16 @@ async fn test_mysql_list_stored_procedures() -> Result<()> {
 
     // Create test stored procedure
     info!("Creating test stored procedure");
-    adapter.execute_query("
+    adapter
+        .execute_query(
+            "
         CREATE PROCEDURE test_add_numbers(IN a INT, IN b INT, OUT result INT)
         BEGIN
             SET result = a + b;
         END
-    ").await?;
+    ",
+        )
+        .await?;
 
     // List procedures
     info!("Testing list_stored_procedures");
@@ -452,11 +547,16 @@ async fn test_mysql_list_stored_procedures() -> Result<()> {
     assert!(test_proc.is_some());
     let proc = test_proc.unwrap();
     assert_eq!(proc.language, Some("SQL".to_string()));
-    debug!("Found procedure: {} (language: {:?})", proc.name, proc.language);
+    debug!(
+        "Found procedure: {} (language: {:?})",
+        proc.name, proc.language
+    );
 
     // Cleanup
     info!("Cleaning up test procedure");
-    adapter.execute_query("DROP PROCEDURE test_add_numbers").await?;
+    adapter
+        .execute_query("DROP PROCEDURE test_add_numbers")
+        .await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_mysql_list_stored_procedures");
@@ -547,14 +647,15 @@ async fn test_mysql_bulk_insert() -> Result<()> {
         .await?;
 
     assert_eq!(result.rows.len(), 4);
-    assert_eq!(result.columns, vec!["id", "name", "email", "active", "score"]);
+    assert_eq!(
+        result.columns,
+        vec!["id", "name", "email", "active", "score"]
+    );
     debug!("Data verification successful");
 
     // Cleanup
     info!("Cleaning up test table");
-    adapter
-        .execute_query("DROP TABLE test_bulk_insert")
-        .await?;
+    adapter.execute_query("DROP TABLE test_bulk_insert").await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_mysql_bulk_insert");
@@ -606,7 +707,10 @@ async fn test_mysql_bulk_update() -> Result<()> {
     update1.insert("score".to_string(), QueryValue::Int(100));
 
     let mut update2 = HashMap::new();
-    update2.insert("status".to_string(), QueryValue::Text("completed".to_string()));
+    update2.insert(
+        "status".to_string(),
+        QueryValue::Text("completed".to_string()),
+    );
 
     let updates = vec![
         (update1, "id = 1".to_string()),
@@ -633,9 +737,7 @@ async fn test_mysql_bulk_update() -> Result<()> {
 
     // Cleanup
     info!("Cleaning up test table");
-    adapter
-        .execute_query("DROP TABLE test_bulk_update")
-        .await?;
+    adapter.execute_query("DROP TABLE test_bulk_update").await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_mysql_bulk_update");
@@ -709,13 +811,14 @@ async fn test_mysql_bulk_delete() -> Result<()> {
 
     assert_eq!(result.rows.len(), 3);
     // Should have IDs 1, 3, 5 remaining
-    debug!("Delete verification successful: {} rows remain", result.rows.len());
+    debug!(
+        "Delete verification successful: {} rows remain",
+        result.rows.len()
+    );
 
     // Cleanup
     info!("Cleaning up test table");
-    adapter
-        .execute_query("DROP TABLE test_bulk_delete")
-        .await?;
+    adapter.execute_query("DROP TABLE test_bulk_delete").await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_mysql_bulk_delete");
@@ -779,9 +882,7 @@ async fn test_mysql_bulk_insert_large_batch() -> Result<()> {
 
     // Cleanup
     info!("Cleaning up test table");
-    adapter
-        .execute_query("DROP TABLE test_bulk_large")
-        .await?;
+    adapter.execute_query("DROP TABLE test_bulk_large").await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_mysql_bulk_insert_large_batch");
@@ -803,7 +904,9 @@ async fn test_zzz_cleanup_mysql_database() -> Result<()> {
     adapter.connect(&root_config, Some("root_password")).await?;
 
     // Drop test database
-    adapter.execute_query(&format!("DROP DATABASE IF EXISTS {}", TEST_DB_NAME)).await?;
+    adapter
+        .execute_query(&format!("DROP DATABASE IF EXISTS {}", TEST_DB_NAME))
+        .await?;
 
     adapter.disconnect().await?;
 

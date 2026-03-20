@@ -94,9 +94,7 @@ impl PostgresConnectionForm {
     ) -> Element<'a, Message> {
         let theme = self.theme;
 
-        let title = text("New PostgreSQL Connection")
-            .size(18)
-            .color(theme.text);
+        let title = text("New PostgreSQL Connection").size(18).color(theme.text);
 
         let mut form_fields = column![
             title,
@@ -128,7 +126,9 @@ impl PostgresConnectionForm {
             self.form_field(
                 "Database",
                 text_input("mydb", &data.database)
-                    .on_input(move |s| on_message(PostgresConnectionFormMessage::DatabaseChanged(s)))
+                    .on_input(
+                        move |s| on_message(PostgresConnectionFormMessage::DatabaseChanged(s))
+                    )
                     .padding(8)
                     .style(|theme, status| self.input_style(theme, status))
             ),
@@ -136,7 +136,9 @@ impl PostgresConnectionForm {
             self.form_field(
                 "Username",
                 text_input("postgres", &data.username)
-                    .on_input(move |s| on_message(PostgresConnectionFormMessage::UsernameChanged(s)))
+                    .on_input(
+                        move |s| on_message(PostgresConnectionFormMessage::UsernameChanged(s))
+                    )
                     .padding(8)
                     .style(|theme, status| self.input_style(theme, status))
             ),
@@ -144,7 +146,9 @@ impl PostgresConnectionForm {
             self.form_field(
                 "Password",
                 text_input("password", &data.password)
-                    .on_input(move |s| on_message(PostgresConnectionFormMessage::PasswordChanged(s)))
+                    .on_input(
+                        move |s| on_message(PostgresConnectionFormMessage::PasswordChanged(s))
+                    )
                     .padding(8)
                     .secure(true)
                     .style(|theme, status| self.input_style(theme, status))

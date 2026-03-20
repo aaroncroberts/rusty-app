@@ -4,8 +4,8 @@ use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     Aes256Gcm, Nonce,
 };
-use argon2::{Argon2, PasswordHasher};
 use argon2::password_hash::SaltString;
+use argon2::{Argon2, PasswordHasher};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -115,12 +115,16 @@ impl ConfigManager {
 
         // Validate ID is not empty
         if config.id.trim().is_empty() {
-            return Err(DataError::Config("Connection ID cannot be empty".to_string()));
+            return Err(DataError::Config(
+                "Connection ID cannot be empty".to_string(),
+            ));
         }
 
         // Validate database name is not empty
         if config.database.trim().is_empty() {
-            return Err(DataError::Config("Database name cannot be empty".to_string()));
+            return Err(DataError::Config(
+                "Database name cannot be empty".to_string(),
+            ));
         }
 
         // For non-file-based databases, host is required
@@ -128,7 +132,11 @@ impl ConfigManager {
             DatabaseType::SQLite => {
                 // SQLite uses database field as file path, host/port are optional
             }
-            DatabaseType::Postgres | DatabaseType::MySQL | DatabaseType::MongoDB | DatabaseType::SQLServer | DatabaseType::Oracle => {
+            DatabaseType::Postgres
+            | DatabaseType::MySQL
+            | DatabaseType::MongoDB
+            | DatabaseType::SQLServer
+            | DatabaseType::Oracle => {
                 if config.host.is_none() || config.host.as_ref().unwrap().trim().is_empty() {
                     return Err(DataError::Config(format!(
                         "{:?} requires a host address",
@@ -142,14 +150,18 @@ impl ConfigManager {
         if let Some(port) = config.port {
             if port == 0 {
                 return Err(DataError::Config(
-                    "Invalid port number: 0. Must be between 1 and 65535".to_string()
+                    "Invalid port number: 0. Must be between 1 and 65535".to_string(),
                 ));
             }
         }
 
         // For server databases, port should be specified
         match config.db_type {
-            DatabaseType::Postgres | DatabaseType::MySQL | DatabaseType::MongoDB | DatabaseType::SQLServer | DatabaseType::Oracle => {
+            DatabaseType::Postgres
+            | DatabaseType::MySQL
+            | DatabaseType::MongoDB
+            | DatabaseType::SQLServer
+            | DatabaseType::Oracle => {
                 if config.port.is_none() {
                     return Err(DataError::Config(format!(
                         "{:?} requires a port number",
@@ -174,9 +186,9 @@ impl ConfigManager {
             .hash_password(master_password.as_bytes(), &salt)
             .map_err(|e| DataError::Encryption(format!("Key derivation failed: {}", e)))?;
 
-        let key_bytes = key_hash.hash.ok_or_else(|| {
-            DataError::Encryption("Failed to extract key from hash".to_string())
-        })?;
+        let key_bytes = key_hash
+            .hash
+            .ok_or_else(|| DataError::Encryption("Failed to extract key from hash".to_string()))?;
         let key = key_bytes.as_bytes();
 
         if key.len() < 32 {
@@ -214,9 +226,9 @@ impl ConfigManager {
             .hash_password(master_password.as_bytes(), &salt)
             .map_err(|e| DataError::Encryption(format!("Key derivation failed: {}", e)))?;
 
-        let key_bytes = key_hash.hash.ok_or_else(|| {
-            DataError::Encryption("Failed to extract key from hash".to_string())
-        })?;
+        let key_bytes = key_hash
+            .hash
+            .ok_or_else(|| DataError::Encryption("Failed to extract key from hash".to_string()))?;
         let key = key_bytes.as_bytes();
 
         if key.len() < 32 {
@@ -232,7 +244,9 @@ impl ConfigManager {
 
         let plaintext = cipher
             .decrypt(nonce, encrypted.ciphertext.as_ref())
-            .map_err(|e| DataError::Encryption(format!("Decryption failed (wrong password?): {}", e)))?;
+            .map_err(|e| {
+                DataError::Encryption(format!("Decryption failed (wrong password?): {}", e))
+            })?;
 
         String::from_utf8(plaintext)
             .map_err(|e| DataError::Encryption(format!("Invalid UTF-8 in decrypted data: {}", e)))
@@ -314,9 +328,9 @@ mod tests {
 
     #[test]
     fn test_save_and_load_connections() {
-        use std::env;
-        use std::collections::HashMap;
         use crate::adapter::DatabaseType;
+        use std::collections::HashMap;
+        use std::env;
 
         let temp_dir = env::temp_dir().join("rusty-data-test-save-load");
 
@@ -380,8 +394,8 @@ mod tests {
 
     #[test]
     fn test_validate_empty_id() {
-        use std::collections::HashMap;
         use crate::adapter::DatabaseType;
+        use std::collections::HashMap;
 
         let config = ConnectionConfig {
             id: "".to_string(),
@@ -397,13 +411,16 @@ mod tests {
 
         let result = ConfigManager::validate_connection(&config);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("ID cannot be empty"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("ID cannot be empty"));
     }
 
     #[test]
     fn test_validate_empty_database() {
-        use std::collections::HashMap;
         use crate::adapter::DatabaseType;
+        use std::collections::HashMap;
 
         let config = ConnectionConfig {
             id: "test".to_string(),
@@ -419,13 +436,16 @@ mod tests {
 
         let result = ConfigManager::validate_connection(&config);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Database name cannot be empty"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Database name cannot be empty"));
     }
 
     #[test]
     fn test_validate_missing_host_for_postgres() {
-        use std::collections::HashMap;
         use crate::adapter::DatabaseType;
+        use std::collections::HashMap;
 
         let config = ConnectionConfig {
             id: "test".to_string(),
@@ -446,8 +466,8 @@ mod tests {
 
     #[test]
     fn test_validate_missing_port_for_mysql() {
-        use std::collections::HashMap;
         use crate::adapter::DatabaseType;
+        use std::collections::HashMap;
 
         let config = ConnectionConfig {
             id: "test".to_string(),
@@ -468,8 +488,8 @@ mod tests {
 
     #[test]
     fn test_validate_invalid_port() {
-        use std::collections::HashMap;
         use crate::adapter::DatabaseType;
+        use std::collections::HashMap;
 
         let config = ConnectionConfig {
             id: "test".to_string(),
@@ -490,8 +510,8 @@ mod tests {
 
     #[test]
     fn test_validate_sqlite_no_host_required() {
-        use std::collections::HashMap;
         use crate::adapter::DatabaseType;
+        use std::collections::HashMap;
 
         let config = ConnectionConfig {
             id: "test".to_string(),
@@ -511,8 +531,8 @@ mod tests {
 
     #[test]
     fn test_validate_duplicate_ids() {
-        use std::collections::HashMap;
         use crate::adapter::DatabaseType;
+        use std::collections::HashMap;
         use std::env;
 
         let temp_dir = env::temp_dir().join("rusty-data-test-duplicate");
@@ -545,7 +565,10 @@ mod tests {
 
         let result = manager.save_connections(&connections);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Duplicate connection ID"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Duplicate connection ID"));
 
         // Cleanup
         let _ = fs::remove_dir_all(&temp_dir);
@@ -553,8 +576,8 @@ mod tests {
 
     #[test]
     fn test_valid_postgres_connection() {
-        use std::collections::HashMap;
         use crate::adapter::DatabaseType;
+        use std::collections::HashMap;
 
         let config = ConnectionConfig {
             id: "valid-pg".to_string(),

@@ -7,16 +7,16 @@ license.workspace = true
 
 [features]
 default = ["postgres", "mysql", "sqlite", "mongodb", "mssql", "oracle"]
-postgres = ["rusty-data/postgres"]
-mysql = ["rusty-data/mysql"]
-sqlite = ["rusty-data/sqlite"]
-mongodb = ["rusty-data/mongodb"]
-mssql = ["rusty-data/mssql"]
-oracle = ["rusty-data/oracle"]
+postgres = ["arni/postgres"]
+mysql = ["arni/mysql"]
+sqlite = ["arni/sqlite"]
+mongodb = ["arni/mongodb"]
+mssql = ["arni/mssql"]
+oracle = ["arni/oracle"]
 
 [dependencies]
-# Internal dependencies
-rusty-data = { path = "../rusty-data", features = ["postgres", "mysql", "sqlite", "mongodb", "mssql", "oracle"] }
+# Data access
+arni = { git = "https://github.com/aaroncroberts/arni", features = ["postgres", "mysql", "sqlite", "mongodb", "mssql", "oracle"] }
 rusty-logging = { path = "../rusty-logging" }
 
 # Logging (for tracing macros)

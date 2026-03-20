@@ -253,7 +253,7 @@ fn expand_home_dir(path: &Path) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusty_data::adapter::{ConnectionConfig, DatabaseType};
+    use arni::{ConnectionConfig, DatabaseType};
     use std::collections::HashMap;
 
     fn temp_settings_dir() -> PathBuf {
@@ -428,7 +428,10 @@ mod tests {
         // Verify connection persisted
         assert_eq!(manager.settings().connections.len(), 1);
         assert_eq!(manager.settings().connections[0].id, "test-pg");
-        assert_eq!(manager.settings().connections[0].db_type, DatabaseType::Postgres);
+        assert_eq!(
+            manager.settings().connections[0].db_type,
+            DatabaseType::Postgres
+        );
 
         // Cleanup
         let _ = fs::remove_dir_all(&dir);

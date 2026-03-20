@@ -9,7 +9,7 @@
 use crate::theme::ThemeColors;
 use iced::widget::{column, container, row, scrollable, text};
 use iced::{Border, Element, Fill, Length};
-use rusty_data::adapter::QueryResult;
+use arni::QueryResult;
 
 /// Result grid component for displaying query results
 pub struct ResultGrid {
@@ -89,14 +89,11 @@ impl ResultGrid {
         // Build header row
         let mut header_row = row![].spacing(1);
         for col in &result.columns {
-            let header_cell = container(
-                text(col.clone())
-                    .size(12)
-                    .color(theme.text)
-                    .style(|_theme| text::Style {
-                        color: Some(iced::Color::from_rgb(1.0, 1.0, 1.0)),
-                    }),
-            )
+            let header_cell = container(text(col.clone()).size(12).color(theme.text).style(
+                |_theme| text::Style {
+                    color: Some(iced::Color::from_rgb(1.0, 1.0, 1.0)),
+                },
+            ))
             .width(Length::Fixed(150.0))
             .padding([6, 10])
             .style(move |_theme| container::Style {
@@ -148,7 +145,10 @@ impl ResultGrid {
         // Footer with row count
         let row_count = result.rows.len();
         let footer_text = if let Some(affected) = result.rows_affected {
-            format!("{} row(s) returned, {} row(s) affected", row_count, affected)
+            format!(
+                "{} row(s) returned, {} row(s) affected",
+                row_count, affected
+            )
         } else {
             format!("{} row(s) returned", row_count)
         };
@@ -166,25 +166,21 @@ impl ResultGrid {
                 ..Default::default()
             });
 
-        container(
-            column![header, data_scroll, footer]
-                .spacing(0)
-                .height(Fill),
-        )
-        .width(Fill)
-        .height(Fill)
-        .style(move |_theme| container::Style {
-            background: Some(theme.background.into()),
-            ..Default::default()
-        })
-        .into()
+        container(column![header, data_scroll, footer].spacing(0).height(Fill))
+            .width(Fill)
+            .height(Fill)
+            .style(move |_theme| container::Style {
+                background: Some(theme.background.into()),
+                ..Default::default()
+            })
+            .into()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusty_data::adapter::QueryValue;
+    use arni::QueryValue;
 
     #[test]
     fn test_result_grid_creation() {
@@ -199,10 +195,10 @@ mod tests {
         assert_eq!(format!("{}", QueryValue::Bool(true)), "true");
         assert_eq!(format!("{}", QueryValue::Int(42)), "42");
         assert_eq!(format!("{}", QueryValue::Float(3.14)), "3.14");
-        assert_eq!(format!("{}", QueryValue::Text("hello".to_string())), "hello");
         assert_eq!(
-            format!("{}", QueryValue::Bytes(vec![1, 2, 3])),
-            "<3 bytes>"
+            format!("{}", QueryValue::Text("hello".to_string())),
+            "hello"
         );
+        assert_eq!(format!("{}", QueryValue::Bytes(vec![1, 2, 3])), "<3 bytes>");
     }
 }

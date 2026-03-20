@@ -8,8 +8,8 @@ use crate::query_editor::QueryEditor;
 use crate::result_grid::ResultGrid;
 use crate::theme::ThemeColors;
 use iced::widget::{button, column, container, row, text};
-use iced::{Border, Element, Fill};
-use rusty_data::adapter::QueryResult;
+use iced::{Border, Element, Fill, Length};
+use arni::QueryResult;
 use std::collections::HashMap;
 
 /// Identifier for a tab
@@ -274,12 +274,21 @@ impl MainPanel {
             let result_opt = query_results.get(&tab_id).cloned().flatten();
             let error_opt = query_errors.get(&tab_id).cloned().flatten();
 
-            // Create a column with editor on top, result grid on bottom
+            // Top region: query editor (60% of vertical space)
             let editor_view = editor.view();
+            let top_region = container(editor_view)
+                .width(Fill)
+                .height(Length::FillPortion(60));
+
+            // Bottom region: results grid (40% of vertical space)
             let result_view: Element<'a, crate::query_editor::QueryEditorMessage> =
                 self.result_grid.view(result_opt, error_opt);
+            let bottom_region = container(result_view)
+                .width(Fill)
+                .height(Length::FillPortion(40));
 
-            container(column![editor_view, result_view].spacing(0).height(Fill))
+            // Dual-region layout with proportional split
+            container(column![top_region, bottom_region].spacing(0).height(Fill))
                 .width(Fill)
                 .height(Fill)
                 .into()

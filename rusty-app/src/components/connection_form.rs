@@ -4,7 +4,7 @@ use crate::components::{Component, ComponentAction, ComponentId, ConnectionFormA
 use crate::theme::ThemeColors;
 use iced::widget::{button, column, container, pick_list, row, text, text_input};
 use iced::{Border, Element, Fill};
-use rusty_data::adapter::DatabaseType;
+use arni::DatabaseType;
 
 /// Wrapper for DatabaseType to implement Display
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +31,7 @@ impl std::fmt::Display for DisplayableDatabaseType {
             DatabaseType::MongoDB => write!(f, "MongoDB"),
             DatabaseType::SQLServer => write!(f, "SQL Server"),
             DatabaseType::Oracle => write!(f, "Oracle"),
+            DatabaseType::DuckDB => unreachable!("DuckDB not used in rusty-app"),
         }
     }
 }
@@ -90,8 +91,12 @@ impl ConnectionFormData {
                     return Err("File path is required for SQLite".to_string());
                 }
             }
-            DatabaseType::Postgres | DatabaseType::MySQL | DatabaseType::MongoDB
-            | DatabaseType::SQLServer | DatabaseType::Oracle => {
+            DatabaseType::DuckDB => unreachable!("DuckDB not used in rusty-app"),
+            DatabaseType::Postgres
+            | DatabaseType::MySQL
+            | DatabaseType::MongoDB
+            | DatabaseType::SQLServer
+            | DatabaseType::Oracle => {
                 if self.host.trim().is_empty() {
                     return Err("Host is required".to_string());
                 }
@@ -168,7 +173,9 @@ impl ConnectionFormComponent {
                 self.data.file_path = file_path;
             }
             // Save, Cancel, TestConnection handled by parent
-            ConnectionFormAction::Save | ConnectionFormAction::Cancel | ConnectionFormAction::TestConnection => {}
+            ConnectionFormAction::Save
+            | ConnectionFormAction::Cancel
+            | ConnectionFormAction::TestConnection => {}
         }
     }
 
@@ -241,7 +248,10 @@ impl Component for ConnectionFormComponent {
             handle_color: theme.text_secondary,
             background: theme.background_secondary.into(),
             border: Border {
-                color: if matches!(status, pick_list::Status::Active | pick_list::Status::Hovered) {
+                color: if matches!(
+                    status,
+                    pick_list::Status::Active | pick_list::Status::Hovered
+                ) {
                     theme.accent
                 } else {
                     theme.border
@@ -257,7 +267,9 @@ impl Component for ConnectionFormComponent {
                 theme,
                 "Connection Name",
                 text_input("My Connection", &data.name)
-                    .on_input(|s| ComponentAction::ConnectionForm(ConnectionFormAction::NameChanged(s)))
+                    .on_input(|s| ComponentAction::ConnectionForm(
+                        ConnectionFormAction::NameChanged(s)
+                    ))
                     .padding(8)
                     .style(move |_theme, status| self.input_style(theme, status))
             ),
@@ -269,67 +281,109 @@ impl Component for ConnectionFormComponent {
         // Show different fields based on database type
         match data.db_type {
             DatabaseType::SQLite => {
-                form_fields = form_fields.push(self.form_field(
-                    theme,
-                    "File Path",
-                    text_input("/path/to/database.db", &data.file_path)
-                        .on_input(|s| ComponentAction::ConnectionForm(ConnectionFormAction::FilePathChanged(s)))
-                        .padding(8)
-                        .style(move |_theme, status| self.input_style(theme, status)),
-                ));
+                form_fields = form_fields.push(
+                    self.form_field(
+                        theme,
+                        "File Path",
+                        text_input("/path/to/database.db", &data.file_path)
+                            .on_input(|s| {
+                                ComponentAction::ConnectionForm(
+                                    ConnectionFormAction::FilePathChanged(s),
+                                )
+                            })
+                            .padding(8)
+                            .style(move |_theme, status| self.input_style(theme, status)),
+                    ),
+                );
             }
-            DatabaseType::Postgres | DatabaseType::MySQL | DatabaseType::MongoDB
-            | DatabaseType::SQLServer | DatabaseType::Oracle => {
+            DatabaseType::Postgres
+            | DatabaseType::MySQL
+            | DatabaseType::MongoDB
+            | DatabaseType::SQLServer
+            | DatabaseType::Oracle => {
                 form_fields = form_fields
-                    .push(self.form_field(
-                        theme,
-                        "Host",
-                        text_input("localhost", &data.host)
-                            .on_input(|s| ComponentAction::ConnectionForm(ConnectionFormAction::HostChanged(s)))
-                            .padding(8)
-                            .style(move |_theme, status| self.input_style(theme, status)),
-                    ))
-                    .push(self.form_field(
-                        theme,
-                        "Port",
-                        text_input("5432", &data.port)
-                            .on_input(|s| ComponentAction::ConnectionForm(ConnectionFormAction::PortChanged(s)))
-                            .padding(8)
-                            .style(move |_theme, status| self.input_style(theme, status)),
-                    ))
-                    .push(self.form_field(
-                        theme,
-                        "Database",
-                        text_input("mydb", &data.database)
-                            .on_input(|s| ComponentAction::ConnectionForm(ConnectionFormAction::DatabaseChanged(s)))
-                            .padding(8)
-                            .style(move |_theme, status| self.input_style(theme, status)),
-                    ))
-                    .push(self.form_field(
-                        theme,
-                        "Username",
-                        text_input("user", &data.username)
-                            .on_input(|s| ComponentAction::ConnectionForm(ConnectionFormAction::UsernameChanged(s)))
-                            .padding(8)
-                            .style(move |_theme, status| self.input_style(theme, status)),
-                    ))
-                    .push(self.form_field(
-                        theme,
-                        "Password",
-                        text_input("password", &data.password)
-                            .on_input(|s| ComponentAction::ConnectionForm(ConnectionFormAction::PasswordChanged(s)))
-                            .padding(8)
-                            .secure(true)
-                            .style(move |_theme, status| self.input_style(theme, status)),
-                    ));
+                    .push(
+                        self.form_field(
+                            theme,
+                            "Host",
+                            text_input("localhost", &data.host)
+                                .on_input(|s| {
+                                    ComponentAction::ConnectionForm(
+                                        ConnectionFormAction::HostChanged(s),
+                                    )
+                                })
+                                .padding(8)
+                                .style(move |_theme, status| self.input_style(theme, status)),
+                        ),
+                    )
+                    .push(
+                        self.form_field(
+                            theme,
+                            "Port",
+                            text_input("5432", &data.port)
+                                .on_input(|s| {
+                                    ComponentAction::ConnectionForm(
+                                        ConnectionFormAction::PortChanged(s),
+                                    )
+                                })
+                                .padding(8)
+                                .style(move |_theme, status| self.input_style(theme, status)),
+                        ),
+                    )
+                    .push(
+                        self.form_field(
+                            theme,
+                            "Database",
+                            text_input("mydb", &data.database)
+                                .on_input(|s| {
+                                    ComponentAction::ConnectionForm(
+                                        ConnectionFormAction::DatabaseChanged(s),
+                                    )
+                                })
+                                .padding(8)
+                                .style(move |_theme, status| self.input_style(theme, status)),
+                        ),
+                    )
+                    .push(
+                        self.form_field(
+                            theme,
+                            "Username",
+                            text_input("user", &data.username)
+                                .on_input(|s| {
+                                    ComponentAction::ConnectionForm(
+                                        ConnectionFormAction::UsernameChanged(s),
+                                    )
+                                })
+                                .padding(8)
+                                .style(move |_theme, status| self.input_style(theme, status)),
+                        ),
+                    )
+                    .push(
+                        self.form_field(
+                            theme,
+                            "Password",
+                            text_input("password", &data.password)
+                                .on_input(|s| {
+                                    ComponentAction::ConnectionForm(
+                                        ConnectionFormAction::PasswordChanged(s),
+                                    )
+                                })
+                                .padding(8)
+                                .secure(true)
+                                .style(move |_theme, status| self.input_style(theme, status)),
+                        ),
+                    );
             }
+            DatabaseType::DuckDB => unreachable!("DuckDB not used in rusty-app"),
         }
 
         // Action buttons
         let buttons = row![
             button(text("Cancel").size(14))
                 .padding([8, 16])
-                .on_press(ComponentAction::ConnectionForm(ConnectionFormAction::Cancel))
+                .on_press(ComponentAction::ConnectionForm(
+                    ConnectionFormAction::Cancel
+                ))
                 .style(move |_theme, status| button::Style {
                     background: Some(theme.background_secondary.into()),
                     text_color: theme.text,
@@ -346,7 +400,9 @@ impl Component for ConnectionFormComponent {
                 }),
             button(text("Test Connection").size(14))
                 .padding([8, 16])
-                .on_press(ComponentAction::ConnectionForm(ConnectionFormAction::TestConnection))
+                .on_press(ComponentAction::ConnectionForm(
+                    ConnectionFormAction::TestConnection
+                ))
                 .style(move |_theme, status| button::Style {
                     background: Some(theme.background_secondary.into()),
                     text_color: theme.text,

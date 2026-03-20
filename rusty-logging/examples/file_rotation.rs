@@ -1,7 +1,6 @@
 /// File logging with rotation example
 ///
 /// Run with: cargo run --example file_rotation
-
 use rusty_logging::{LoggingConfig, RotationPolicy};
 use tracing::{debug, info};
 

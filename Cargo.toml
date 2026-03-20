@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
     "rusty-app",
-    "rusty-data",
     "rusty-logging",
 ]
 
@@ -14,7 +13,7 @@ license = "MIT"
 
 [workspace.dependencies]
 # Async runtime
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.49", features = ["full"] }
 async-trait = "0.1"
 
 # Serialization
@@ -26,10 +25,3 @@ toml = "0.8"
 thiserror = "1.0"
 anyhow = "1.0"
 
-# Encryption for credentials
-aes-gcm = "0.10"
-argon2 = "0.5"
-rand = "0.8"
-
-# Database drivers (to be added per adapter)
-# sqlx = { version = "0.7", features = ["runtime-tokio", "tls-rustls"] }

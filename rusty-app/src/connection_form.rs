@@ -6,7 +6,7 @@
 use crate::theme::ThemeColors;
 use iced::widget::{button, column, container, pick_list, row, text, text_input};
 use iced::{Border, Element, Fill};
-use rusty_data::adapter::DatabaseType;
+use arni::DatabaseType;
 
 /// Wrapper for DatabaseType to implement Display
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +33,7 @@ impl std::fmt::Display for DisplayableDatabaseType {
             DatabaseType::MongoDB => write!(f, "MongoDB"),
             DatabaseType::SQLServer => write!(f, "SQL Server"),
             DatabaseType::Oracle => write!(f, "Oracle"),
+            DatabaseType::DuckDB => unreachable!("DuckDB not used in rusty-app"),
         }
     }
 }
@@ -92,8 +93,12 @@ impl ConnectionFormData {
                     return Err("File path is required for SQLite".to_string());
                 }
             }
-            DatabaseType::Postgres | DatabaseType::MySQL | DatabaseType::MongoDB
-            | DatabaseType::SQLServer | DatabaseType::Oracle => {
+            DatabaseType::DuckDB => unreachable!("DuckDB not used in rusty-app"),
+            DatabaseType::Postgres
+            | DatabaseType::MySQL
+            | DatabaseType::MongoDB
+            | DatabaseType::SQLServer
+            | DatabaseType::Oracle => {
                 if self.host.trim().is_empty() {
                     return Err("Host is required".to_string());
                 }
@@ -157,7 +162,9 @@ impl ConnectionForm {
                 DisplayableDatabaseType(DatabaseType::SQLite),
             ],
             Some(DisplayableDatabaseType(data.db_type)),
-            move |dt: DisplayableDatabaseType| on_message(ConnectionFormMessage::DbTypeChanged(dt.0)),
+            move |dt: DisplayableDatabaseType| {
+                on_message(ConnectionFormMessage::DbTypeChanged(dt.0))
+            },
         )
         .padding(8)
         .style(move |_theme, status| pick_list::Style {
@@ -166,7 +173,10 @@ impl ConnectionForm {
             handle_color: theme.text_secondary,
             background: theme.background_secondary.into(),
             border: Border {
-                color: if matches!(status, pick_list::Status::Active | pick_list::Status::Hovered) {
+                color: if matches!(
+                    status,
+                    pick_list::Status::Active | pick_list::Status::Hovered
+                ) {
                     theme.accent
                 } else {
                     theme.border
@@ -193,54 +203,82 @@ impl ConnectionForm {
         // Show different fields based on database type
         match data.db_type {
             DatabaseType::SQLite => {
-                form_fields = form_fields.push(self.form_field(
-                    "File Path",
-                    text_input("/path/to/database.db", &data.file_path)
-                        .on_input(move |s| on_message(ConnectionFormMessage::FilePathChanged(s)))
-                        .padding(8)
-                        .style(|theme, status| self.input_style(theme, status)),
-                ));
+                form_fields = form_fields.push(
+                    self.form_field(
+                        "File Path",
+                        text_input("/path/to/database.db", &data.file_path)
+                            .on_input(move |s| {
+                                on_message(ConnectionFormMessage::FilePathChanged(s))
+                            })
+                            .padding(8)
+                            .style(|theme, status| self.input_style(theme, status)),
+                    ),
+                );
             }
-            DatabaseType::Postgres | DatabaseType::MySQL | DatabaseType::MongoDB
-            | DatabaseType::SQLServer | DatabaseType::Oracle => {
+            DatabaseType::Postgres
+            | DatabaseType::MySQL
+            | DatabaseType::MongoDB
+            | DatabaseType::SQLServer
+            | DatabaseType::Oracle => {
                 form_fields = form_fields
-                    .push(self.form_field(
-                        "Host",
-                        text_input("localhost", &data.host)
-                            .on_input(move |s| on_message(ConnectionFormMessage::HostChanged(s)))
-                            .padding(8)
-                            .style(|theme, status| self.input_style(theme, status)),
-                    ))
-                    .push(self.form_field(
-                        "Port",
-                        text_input("5432", &data.port)
-                            .on_input(move |s| on_message(ConnectionFormMessage::PortChanged(s)))
-                            .padding(8)
-                            .style(|theme, status| self.input_style(theme, status)),
-                    ))
-                    .push(self.form_field(
-                        "Database",
-                        text_input("mydb", &data.database)
-                            .on_input(move |s| on_message(ConnectionFormMessage::DatabaseChanged(s)))
-                            .padding(8)
-                            .style(|theme, status| self.input_style(theme, status)),
-                    ))
-                    .push(self.form_field(
-                        "Username",
-                        text_input("user", &data.username)
-                            .on_input(move |s| on_message(ConnectionFormMessage::UsernameChanged(s)))
-                            .padding(8)
-                            .style(|theme, status| self.input_style(theme, status)),
-                    ))
-                    .push(self.form_field(
-                        "Password",
-                        text_input("password", &data.password)
-                            .on_input(move |s| on_message(ConnectionFormMessage::PasswordChanged(s)))
-                            .padding(8)
-                            .secure(true)
-                            .style(|theme, status| self.input_style(theme, status)),
-                    ));
+                    .push(
+                        self.form_field(
+                            "Host",
+                            text_input("localhost", &data.host)
+                                .on_input(move |s| {
+                                    on_message(ConnectionFormMessage::HostChanged(s))
+                                })
+                                .padding(8)
+                                .style(|theme, status| self.input_style(theme, status)),
+                        ),
+                    )
+                    .push(
+                        self.form_field(
+                            "Port",
+                            text_input("5432", &data.port)
+                                .on_input(move |s| {
+                                    on_message(ConnectionFormMessage::PortChanged(s))
+                                })
+                                .padding(8)
+                                .style(|theme, status| self.input_style(theme, status)),
+                        ),
+                    )
+                    .push(
+                        self.form_field(
+                            "Database",
+                            text_input("mydb", &data.database)
+                                .on_input(move |s| {
+                                    on_message(ConnectionFormMessage::DatabaseChanged(s))
+                                })
+                                .padding(8)
+                                .style(|theme, status| self.input_style(theme, status)),
+                        ),
+                    )
+                    .push(
+                        self.form_field(
+                            "Username",
+                            text_input("user", &data.username)
+                                .on_input(move |s| {
+                                    on_message(ConnectionFormMessage::UsernameChanged(s))
+                                })
+                                .padding(8)
+                                .style(|theme, status| self.input_style(theme, status)),
+                        ),
+                    )
+                    .push(
+                        self.form_field(
+                            "Password",
+                            text_input("password", &data.password)
+                                .on_input(move |s| {
+                                    on_message(ConnectionFormMessage::PasswordChanged(s))
+                                })
+                                .padding(8)
+                                .secure(true)
+                                .style(|theme, status| self.input_style(theme, status)),
+                        ),
+                    );
             }
+            DatabaseType::DuckDB => unreachable!("DuckDB not used in rusty-app"),
         }
 
         // Action buttons
@@ -346,7 +384,6 @@ impl ConnectionForm {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -513,8 +550,17 @@ mod tests {
 
     #[test]
     fn test_database_type_display() {
-        assert_eq!(DisplayableDatabaseType(DatabaseType::Postgres).to_string(), "PostgreSQL");
-        assert_eq!(DisplayableDatabaseType(DatabaseType::MySQL).to_string(), "MySQL");
-        assert_eq!(DisplayableDatabaseType(DatabaseType::SQLite).to_string(), "SQLite");
+        assert_eq!(
+            DisplayableDatabaseType(DatabaseType::Postgres).to_string(),
+            "PostgreSQL"
+        );
+        assert_eq!(
+            DisplayableDatabaseType(DatabaseType::MySQL).to_string(),
+            "MySQL"
+        );
+        assert_eq!(
+            DisplayableDatabaseType(DatabaseType::SQLite).to_string(),
+            "SQLite"
+        );
     }
 }

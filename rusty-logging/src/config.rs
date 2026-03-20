@@ -1,8 +1,8 @@
 use crate::error::{LoggingError, Result};
 use std::path::PathBuf;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
-use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
 /// Logging configuration for rusty-logging
 ///
@@ -123,12 +123,22 @@ impl LoggingConfig {
         // Build console filter
         let console_filter = EnvFilter::try_from_default_env()
             .or_else(|_| EnvFilter::try_new(console_filter_str))
-            .map_err(|e| LoggingError::FilterError(format!("Invalid console filter '{}': {}", console_filter_str, e)))?;
+            .map_err(|e| {
+                LoggingError::FilterError(format!(
+                    "Invalid console filter '{}': {}",
+                    console_filter_str, e
+                ))
+            })?;
 
         // Build file filter
         let file_filter = EnvFilter::try_from_default_env()
             .or_else(|_| EnvFilter::try_new(file_filter_str))
-            .map_err(|e| LoggingError::FilterError(format!("Invalid file filter '{}': {}", file_filter_str, e)))?;
+            .map_err(|e| {
+                LoggingError::FilterError(format!(
+                    "Invalid file filter '{}': {}",
+                    file_filter_str, e
+                ))
+            })?;
 
         let registry = tracing_subscriber::registry();
 
@@ -147,11 +157,8 @@ impl LoggingConfig {
                     RotationPolicy::Never => Rotation::NEVER,
                 };
 
-                let file_appender = RollingFileAppender::new(
-                    rotation,
-                    &self.file_directory,
-                    &self.file_prefix,
-                );
+                let file_appender =
+                    RollingFileAppender::new(rotation, &self.file_directory, &self.file_prefix);
 
                 // Handle all combinations of console and file formats
                 match (self.console_format, self.console_writer, self.file_format) {
@@ -179,7 +186,9 @@ impl LoggingConfig {
                             .with(console_layer)
                             .with(file_layer)
                             .try_init()
-                            .map_err(|e| LoggingError::InitError(format!("Failed to initialize: {}", e)))?;
+                            .map_err(|e| {
+                                LoggingError::InitError(format!("Failed to initialize: {}", e))
+                            })?;
                     }
                     // Pretty + Stdout + Json
                     (ConsoleFormat::Pretty, ConsoleWriter::Stdout, FileFormat::Json) => {
@@ -201,7 +210,9 @@ impl LoggingConfig {
                             .with(console_layer)
                             .with(file_layer)
                             .try_init()
-                            .map_err(|e| LoggingError::InitError(format!("Failed to initialize: {}", e)))?;
+                            .map_err(|e| {
+                                LoggingError::InitError(format!("Failed to initialize: {}", e))
+                            })?;
                     }
                     // Pretty + Stderr + Text
                     (ConsoleFormat::Pretty, ConsoleWriter::Stderr, FileFormat::Text) => {
@@ -227,7 +238,9 @@ impl LoggingConfig {
                             .with(console_layer)
                             .with(file_layer)
                             .try_init()
-                            .map_err(|e| LoggingError::InitError(format!("Failed to initialize: {}", e)))?;
+                            .map_err(|e| {
+                                LoggingError::InitError(format!("Failed to initialize: {}", e))
+                            })?;
                     }
                     // Pretty + Stderr + Json
                     (ConsoleFormat::Pretty, ConsoleWriter::Stderr, FileFormat::Json) => {
@@ -249,7 +262,9 @@ impl LoggingConfig {
                             .with(console_layer)
                             .with(file_layer)
                             .try_init()
-                            .map_err(|e| LoggingError::InitError(format!("Failed to initialize: {}", e)))?;
+                            .map_err(|e| {
+                                LoggingError::InitError(format!("Failed to initialize: {}", e))
+                            })?;
                     }
                     // Compact + Stdout + Text
                     (ConsoleFormat::Compact, ConsoleWriter::Stdout, FileFormat::Text) => {
@@ -272,7 +287,9 @@ impl LoggingConfig {
                             .with(console_layer)
                             .with(file_layer)
                             .try_init()
-                            .map_err(|e| LoggingError::InitError(format!("Failed to initialize: {}", e)))?;
+                            .map_err(|e| {
+                                LoggingError::InitError(format!("Failed to initialize: {}", e))
+                            })?;
                     }
                     // Compact + Stdout + Json
                     (ConsoleFormat::Compact, ConsoleWriter::Stdout, FileFormat::Json) => {
@@ -291,7 +308,9 @@ impl LoggingConfig {
                             .with(console_layer)
                             .with(file_layer)
                             .try_init()
-                            .map_err(|e| LoggingError::InitError(format!("Failed to initialize: {}", e)))?;
+                            .map_err(|e| {
+                                LoggingError::InitError(format!("Failed to initialize: {}", e))
+                            })?;
                     }
                     // Compact + Stderr + Text
                     (ConsoleFormat::Compact, ConsoleWriter::Stderr, FileFormat::Text) => {
@@ -314,7 +333,9 @@ impl LoggingConfig {
                             .with(console_layer)
                             .with(file_layer)
                             .try_init()
-                            .map_err(|e| LoggingError::InitError(format!("Failed to initialize: {}", e)))?;
+                            .map_err(|e| {
+                                LoggingError::InitError(format!("Failed to initialize: {}", e))
+                            })?;
                     }
                     // Compact + Stderr + Json
                     (ConsoleFormat::Compact, ConsoleWriter::Stderr, FileFormat::Json) => {
@@ -333,69 +354,65 @@ impl LoggingConfig {
                             .with(console_layer)
                             .with(file_layer)
                             .try_init()
-                            .map_err(|e| LoggingError::InitError(format!("Failed to initialize: {}", e)))?;
+                            .map_err(|e| {
+                                LoggingError::InitError(format!("Failed to initialize: {}", e))
+                            })?;
                     }
                 }
             }
             // Console only
-            (true, false) => {
-                match (self.console_format, self.console_writer) {
-                    (ConsoleFormat::Pretty, ConsoleWriter::Stdout) => {
-                        let layer = fmt::layer()
-                            .pretty()
-                            .with_target(true)
-                            .with_thread_ids(true)
-                            .with_file(true)
-                            .with_line_number(true)
-                            .with_writer(std::io::stdout)
-                            .with_filter(console_filter);
+            (true, false) => match (self.console_format, self.console_writer) {
+                (ConsoleFormat::Pretty, ConsoleWriter::Stdout) => {
+                    let layer = fmt::layer()
+                        .pretty()
+                        .with_target(true)
+                        .with_thread_ids(true)
+                        .with_file(true)
+                        .with_line_number(true)
+                        .with_writer(std::io::stdout)
+                        .with_filter(console_filter);
 
-                        registry
-                            .with(layer)
-                            .try_init()
-                            .map_err(|e| LoggingError::InitError(format!("Failed to initialize: {}", e)))?;
-                    }
-                    (ConsoleFormat::Pretty, ConsoleWriter::Stderr) => {
-                        let layer = fmt::layer()
-                            .pretty()
-                            .with_target(true)
-                            .with_thread_ids(true)
-                            .with_file(true)
-                            .with_line_number(true)
-                            .with_writer(std::io::stderr)
-                            .with_filter(console_filter);
-
-                        registry
-                            .with(layer)
-                            .try_init()
-                            .map_err(|e| LoggingError::InitError(format!("Failed to initialize: {}", e)))?;
-                    }
-                    (ConsoleFormat::Compact, ConsoleWriter::Stdout) => {
-                        let layer = fmt::layer()
-                            .compact()
-                            .with_target(true)
-                            .with_writer(std::io::stdout)
-                            .with_filter(console_filter);
-
-                        registry
-                            .with(layer)
-                            .try_init()
-                            .map_err(|e| LoggingError::InitError(format!("Failed to initialize: {}", e)))?;
-                    }
-                    (ConsoleFormat::Compact, ConsoleWriter::Stderr) => {
-                        let layer = fmt::layer()
-                            .compact()
-                            .with_target(true)
-                            .with_writer(std::io::stderr)
-                            .with_filter(console_filter);
-
-                        registry
-                            .with(layer)
-                            .try_init()
-                            .map_err(|e| LoggingError::InitError(format!("Failed to initialize: {}", e)))?;
-                    }
+                    registry.with(layer).try_init().map_err(|e| {
+                        LoggingError::InitError(format!("Failed to initialize: {}", e))
+                    })?;
                 }
-            }
+                (ConsoleFormat::Pretty, ConsoleWriter::Stderr) => {
+                    let layer = fmt::layer()
+                        .pretty()
+                        .with_target(true)
+                        .with_thread_ids(true)
+                        .with_file(true)
+                        .with_line_number(true)
+                        .with_writer(std::io::stderr)
+                        .with_filter(console_filter);
+
+                    registry.with(layer).try_init().map_err(|e| {
+                        LoggingError::InitError(format!("Failed to initialize: {}", e))
+                    })?;
+                }
+                (ConsoleFormat::Compact, ConsoleWriter::Stdout) => {
+                    let layer = fmt::layer()
+                        .compact()
+                        .with_target(true)
+                        .with_writer(std::io::stdout)
+                        .with_filter(console_filter);
+
+                    registry.with(layer).try_init().map_err(|e| {
+                        LoggingError::InitError(format!("Failed to initialize: {}", e))
+                    })?;
+                }
+                (ConsoleFormat::Compact, ConsoleWriter::Stderr) => {
+                    let layer = fmt::layer()
+                        .compact()
+                        .with_target(true)
+                        .with_writer(std::io::stderr)
+                        .with_filter(console_filter);
+
+                    registry.with(layer).try_init().map_err(|e| {
+                        LoggingError::InitError(format!("Failed to initialize: {}", e))
+                    })?;
+                }
+            },
             // File only
             (false, true) => {
                 // Create log directory if it doesn't exist
@@ -409,11 +426,8 @@ impl LoggingConfig {
                     RotationPolicy::Never => Rotation::NEVER,
                 };
 
-                let file_appender = RollingFileAppender::new(
-                    rotation,
-                    &self.file_directory,
-                    &self.file_prefix,
-                );
+                let file_appender =
+                    RollingFileAppender::new(rotation, &self.file_directory, &self.file_prefix);
 
                 // Build file layer based on format
                 match self.file_format {
@@ -427,10 +441,9 @@ impl LoggingConfig {
                             .with_writer(file_appender)
                             .with_filter(file_filter);
 
-                        registry
-                            .with(file_layer)
-                            .try_init()
-                            .map_err(|e| LoggingError::InitError(format!("Failed to initialize: {}", e)))?;
+                        registry.with(file_layer).try_init().map_err(|e| {
+                            LoggingError::InitError(format!("Failed to initialize: {}", e))
+                        })?;
                     }
                     FileFormat::Json => {
                         let file_layer = fmt::layer()
@@ -438,10 +451,9 @@ impl LoggingConfig {
                             .with_writer(file_appender)
                             .with_filter(file_filter);
 
-                        registry
-                            .with(file_layer)
-                            .try_init()
-                            .map_err(|e| LoggingError::InitError(format!("Failed to initialize: {}", e)))?;
+                        registry.with(file_layer).try_init().map_err(|e| {
+                            LoggingError::InitError(format!("Failed to initialize: {}", e))
+                        })?;
                     }
                 }
             }
@@ -778,8 +790,9 @@ impl LoggingConfigBuilder {
     /// Returns an error if the configuration is invalid.
     pub fn build(self) -> Result<LoggingConfig> {
         // Validate filter
-        EnvFilter::try_new(&self.filter)
-            .map_err(|e| LoggingError::FilterError(format!("Invalid filter '{}': {}", self.filter, e)))?;
+        EnvFilter::try_new(&self.filter).map_err(|e| {
+            LoggingError::FilterError(format!("Invalid filter '{}': {}", self.filter, e))
+        })?;
 
         Ok(LoggingConfig {
             filter: self.filter,
@@ -830,18 +843,13 @@ mod tests {
 
     #[test]
     fn test_builder_without_console() {
-        let config = LoggingConfig::builder()
-            .without_console()
-            .build()
-            .unwrap();
+        let config = LoggingConfig::builder().without_console().build().unwrap();
         assert!(!config.console_enabled);
     }
 
     #[test]
     fn test_builder_invalid_filter() {
-        let result = LoggingConfig::builder()
-            .with_filter("invalid[[[")
-            .build();
+        let result = LoggingConfig::builder().with_filter("invalid[[[").build();
         assert!(result.is_err());
     }
 
@@ -854,20 +862,14 @@ mod tests {
 
     #[test]
     fn test_builder_with_file_text() {
-        let config = LoggingConfig::builder()
-            .with_file_text()
-            .build()
-            .unwrap();
+        let config = LoggingConfig::builder().with_file_text().build().unwrap();
         assert!(config.file_enabled);
         assert_eq!(config.file_format, FileFormat::Text);
     }
 
     #[test]
     fn test_builder_with_file_json() {
-        let config = LoggingConfig::builder()
-            .with_file_json()
-            .build()
-            .unwrap();
+        let config = LoggingConfig::builder().with_file_json().build().unwrap();
         assert!(config.file_enabled);
         assert_eq!(config.file_format, FileFormat::Json);
     }
@@ -901,10 +903,7 @@ mod tests {
 
     #[test]
     fn test_builder_without_file() {
-        let config = LoggingConfig::builder()
-            .without_file()
-            .build()
-            .unwrap();
+        let config = LoggingConfig::builder().without_file().build().unwrap();
         assert!(!config.file_enabled);
     }
 
@@ -993,6 +992,6 @@ mod tests {
             .unwrap();
         assert_eq!(config.filter, "info");
         assert_eq!(config.console_filter, None); // Will use global filter
-        assert_eq!(config.file_filter, None);    // Will use global filter
+        assert_eq!(config.file_filter, None); // Will use global filter
     }
 }

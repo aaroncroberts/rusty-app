@@ -65,13 +65,9 @@ impl StatusBar {
         };
 
         // Status bar content with connection indicator
-        let content = row![
-            text(connection_status.text())
-                .size(12)
-                .color(status_color),
-        ]
-        .padding([6, 15])
-        .spacing(20);
+        let content = row![text(connection_status.text()).size(12).color(status_color),]
+            .padding([6, 15])
+            .spacing(20);
 
         container(content)
             .width(Fill)
@@ -160,7 +156,10 @@ mod tests {
 
     #[test]
     fn test_connection_status_equality() {
-        assert_eq!(ConnectionStatus::Disconnected, ConnectionStatus::Disconnected);
+        assert_eq!(
+            ConnectionStatus::Disconnected,
+            ConnectionStatus::Disconnected
+        );
         assert_eq!(
             ConnectionStatus::Connected("DB1".to_string()),
             ConnectionStatus::Connected("DB1".to_string())

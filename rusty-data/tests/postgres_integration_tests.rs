@@ -13,7 +13,6 @@
 ///
 /// Tests are marked with #[ignore] so they don't run by default.
 /// Use --ignored or --include-ignored to run them.
-
 use rusty_data::adapter::{ConnectionConfig, DatabaseAdapter, DatabaseType};
 use rusty_data::adapters::postgres::PostgresAdapter;
 use rusty_data::error::Result;
@@ -143,9 +142,7 @@ async fn test_postgres_execute_query() -> Result<()> {
 
     // Cleanup
     info!("Cleaning up test table");
-    adapter
-        .execute_query("DROP TABLE test_query_users")
-        .await?;
+    adapter.execute_query("DROP TABLE test_query_users").await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_postgres_execute_query");
@@ -183,15 +180,11 @@ async fn test_postgres_list_tables() -> Result<()> {
 
     // Cleanup
     info!("Cleaning up test tables");
-    adapter
-        .execute_query("DROP TABLE test_list_users")
-        .await?;
+    adapter.execute_query("DROP TABLE test_list_users").await?;
     adapter
         .execute_query("DROP TABLE test_list_products")
         .await?;
-    adapter
-        .execute_query("DROP TABLE test_list_orders")
-        .await?;
+    adapter.execute_query("DROP TABLE test_list_orders").await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_postgres_list_tables");
@@ -222,18 +215,12 @@ async fn test_postgres_describe_table() -> Result<()> {
 
     // Describe table
     info!("Testing describe_table");
-    let table_info = adapter
-        .describe_table("test_describe_table", None)
-        .await?;
+    let table_info = adapter.describe_table("test_describe_table", None).await?;
 
     assert_eq!(table_info.name, "test_describe_table");
     assert_eq!(table_info.columns.len(), 3);
 
-    let column_names: Vec<String> = table_info
-        .columns
-        .iter()
-        .map(|c| c.name.clone())
-        .collect();
+    let column_names: Vec<String> = table_info.columns.iter().map(|c| c.name.clone()).collect();
     assert!(column_names.contains(&"id".to_string()));
     assert!(column_names.contains(&"username".to_string()));
     assert!(column_names.contains(&"email".to_string()));
@@ -326,9 +313,7 @@ async fn test_postgres_crud_operations() -> Result<()> {
 
     // Cleanup: Drop test table
     info!("Cleaning up test table");
-    adapter
-        .execute_query("DROP TABLE test_crud_users")
-        .await?;
+    adapter.execute_query("DROP TABLE test_crud_users").await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_postgres_crud_operations");
@@ -533,7 +518,9 @@ async fn test_postgres_get_table_metadata() -> Result<()> {
 
     // Insert some rows for row count
     adapter
-        .execute_query("INSERT INTO test_metadata_table (name) VALUES ('test1'), ('test2'), ('test3')")
+        .execute_query(
+            "INSERT INTO test_metadata_table (name) VALUES ('test1'), ('test2'), ('test3')",
+        )
         .await?;
 
     // Get table metadata
@@ -724,9 +711,7 @@ async fn test_postgres_get_views() -> Result<()> {
     // Cleanup
     info!("Cleaning up test view and table");
     adapter.execute_query("DROP VIEW test_my_view").await?;
-    adapter
-        .execute_query("DROP TABLE test_view_source")
-        .await?;
+    adapter.execute_query("DROP TABLE test_view_source").await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_postgres_get_views");
@@ -863,14 +848,15 @@ async fn test_postgres_bulk_insert() -> Result<()> {
         .await?;
 
     assert_eq!(result.rows.len(), 4);
-    assert_eq!(result.columns, vec!["id", "name", "email", "active", "score"]);
+    assert_eq!(
+        result.columns,
+        vec!["id", "name", "email", "active", "score"]
+    );
     debug!("Data verification successful");
 
     // Cleanup
     info!("Cleaning up test table");
-    adapter
-        .execute_query("DROP TABLE test_bulk_insert")
-        .await?;
+    adapter.execute_query("DROP TABLE test_bulk_insert").await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_postgres_bulk_insert");
@@ -922,7 +908,10 @@ async fn test_postgres_bulk_update() -> Result<()> {
     update1.insert("score".to_string(), QueryValue::Int(100));
 
     let mut update2 = HashMap::new();
-    update2.insert("status".to_string(), QueryValue::Text("completed".to_string()));
+    update2.insert(
+        "status".to_string(),
+        QueryValue::Text("completed".to_string()),
+    );
 
     let updates = vec![
         (update1, "id = 1".to_string()),
@@ -949,9 +938,7 @@ async fn test_postgres_bulk_update() -> Result<()> {
 
     // Cleanup
     info!("Cleaning up test table");
-    adapter
-        .execute_query("DROP TABLE test_bulk_update")
-        .await?;
+    adapter.execute_query("DROP TABLE test_bulk_update").await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_postgres_bulk_update");
@@ -1025,13 +1012,14 @@ async fn test_postgres_bulk_delete() -> Result<()> {
 
     assert_eq!(result.rows.len(), 3);
     // Should have IDs 1, 3, 5 remaining (the active users)
-    debug!("Delete verification successful: {} rows remain", result.rows.len());
+    debug!(
+        "Delete verification successful: {} rows remain",
+        result.rows.len()
+    );
 
     // Cleanup
     info!("Cleaning up test table");
-    adapter
-        .execute_query("DROP TABLE test_bulk_delete")
-        .await?;
+    adapter.execute_query("DROP TABLE test_bulk_delete").await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_postgres_bulk_delete");
@@ -1049,7 +1037,9 @@ async fn test_postgres_bulk_operations_with_schema() -> Result<()> {
 
     // Create test schema
     info!("Creating test schema");
-    adapter.execute_query("CREATE SCHEMA test_bulk_schema").await?;
+    adapter
+        .execute_query("CREATE SCHEMA test_bulk_schema")
+        .await?;
 
     // Create test table in schema
     adapter
@@ -1088,7 +1078,9 @@ async fn test_postgres_bulk_operations_with_schema() -> Result<()> {
     adapter
         .execute_query("DROP TABLE test_bulk_schema.test_table")
         .await?;
-    adapter.execute_query("DROP SCHEMA test_bulk_schema").await?;
+    adapter
+        .execute_query("DROP SCHEMA test_bulk_schema")
+        .await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_postgres_bulk_operations_with_schema");
@@ -1152,9 +1144,7 @@ async fn test_postgres_bulk_insert_large_batch() -> Result<()> {
 
     // Cleanup
     info!("Cleaning up test table");
-    adapter
-        .execute_query("DROP TABLE test_bulk_large")
-        .await?;
+    adapter.execute_query("DROP TABLE test_bulk_large").await?;
 
     adapter.disconnect().await?;
     info!("Test completed: test_postgres_bulk_insert_large_batch");

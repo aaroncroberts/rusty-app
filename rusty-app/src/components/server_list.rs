@@ -5,7 +5,7 @@ use crate::components::{Component, ComponentAction, ComponentId, ServerListActio
 use crate::theme::ThemeColors;
 use iced::widget::{button, column, container, horizontal_space, row, scrollable, text};
 use iced::{Border, Element, Fill};
-use rusty_data::adapter::ConnectionConfig;
+use arni::ConnectionConfig;
 
 /// Server list component with internal connection list
 #[derive(Debug, Clone)]
@@ -131,7 +131,7 @@ impl Component for ServerListComponent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusty_data::adapter::DatabaseType;
+    use arni::DatabaseType;
 
     fn create_test_connection(id: &str, name: &str) -> ConnectionConfig {
         ConnectionConfig {

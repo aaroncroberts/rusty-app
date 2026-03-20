@@ -94,42 +94,41 @@ impl QueryEditor {
 
         // Toolbar with line count, execute button, and keyboard hint
         let line_count = self.content.line_count();
-        let line_info = text(format!("{} line{}", line_count, if line_count == 1 { "" } else { "s" }))
-            .size(12)
-            .color(theme.text_secondary);
+        let line_info = text(format!(
+            "{} line{}",
+            line_count,
+            if line_count == 1 { "" } else { "s" }
+        ))
+        .size(12)
+        .color(theme.text_secondary);
 
         // Execute button
-        let execute_btn = button(
-            text("Execute")
-                .size(13)
-        )
-        .padding([6, 12])
-        .on_press(QueryEditorMessage::Execute)
-        .style(move |_theme, status| button::Style {
-            background: Some(theme.accent.into()),
-            text_color: theme.text,
-            border: Border {
-                color: if matches!(status, button::Status::Hovered) {
-                    theme.text
-                } else {
-                    theme.accent
+        let execute_btn = button(text("Execute").size(13))
+            .padding([6, 12])
+            .on_press(QueryEditorMessage::Execute)
+            .style(move |_theme, status| button::Style {
+                background: Some(theme.accent.into()),
+                text_color: theme.text,
+                border: Border {
+                    color: if matches!(status, button::Status::Hovered) {
+                        theme.text
+                    } else {
+                        theme.accent
+                    },
+                    width: 1.0,
+                    radius: 4.0.into(),
                 },
-                width: 1.0,
-                radius: 4.0.into(),
-            },
-            ..Default::default()
-        });
+                ..Default::default()
+            });
 
         let toolbar = container(
             row![
                 line_info,
                 execute_btn,
-                text("Ctrl+Enter")
-                    .size(12)
-                    .color(theme.text_secondary),
+                text("Ctrl+Enter").size(12).color(theme.text_secondary),
             ]
             .spacing(15)
-            .align_y(iced::Alignment::Center)
+            .align_y(iced::Alignment::Center),
         )
         .padding([6, 10])
         .width(Fill)
@@ -143,16 +142,10 @@ impl QueryEditor {
             ..Default::default()
         });
 
-        container(
-            column![
-                editor,
-                toolbar,
-            ]
-            .spacing(0)
-        )
-        .width(Fill)
-        .height(Fill)
-        .into()
+        container(column![editor, toolbar,].spacing(0))
+            .width(Fill)
+            .height(Fill)
+            .into()
     }
 }
 

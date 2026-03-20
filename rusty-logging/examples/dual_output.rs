@@ -1,7 +1,6 @@
 /// Dual output example (console + file)
 ///
 /// Run with: cargo run --example dual_output
-
 use rusty_logging::LoggingConfig;
 use tracing::{debug, info, warn};
 

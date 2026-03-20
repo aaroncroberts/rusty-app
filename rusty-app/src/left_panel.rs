@@ -8,9 +8,11 @@
 use crate::components::{ComponentAction, ComponentId};
 use crate::theme::ThemeColors;
 use crate::views::{RegionId, ViewRegistry};
-use iced::widget::{button, column, container, horizontal_space, mouse_area, row, scrollable, text};
-use iced::{Border, Element, Fill, Length};
 use iced::mouse::Interaction;
+use iced::widget::{
+    button, column, container, horizontal_space, mouse_area, row, scrollable, text,
+};
+use iced::{Border, Element, Fill, Length};
 
 /// Minimum width for the left panel in pixels
 pub const MIN_WIDTH: f32 = 120.0;
@@ -139,51 +141,50 @@ impl LeftPanel {
         let enabled_views = view_registry.enabled_views(RegionId::LeftPanel);
 
         // Create tab buttons from enabled views
-        let tabs = enabled_views
-            .iter()
-            .fold(row![].spacing(0), |row, view| {
-                let component_id = view.component().id();
-                let is_active = active_component == Some(component_id);
+        let tabs = enabled_views.iter().fold(row![].spacing(0), |row, view| {
+            let component_id = view.component().id();
+            let is_active = active_component == Some(component_id);
 
-                let tab_button = button(
-                    text(view.component().title())
-                        .size(12)
-                        .color(if is_active { theme.text } else { theme.text_secondary })
-                )
-                .padding([8, 16])
-                .style(move |_theme, status| {
-                    let background = if is_active {
-                        Some(theme.background.into())
-                    } else {
-                        match status {
-                            button::Status::Hovered => Some(theme.background_secondary.into()),
-                            _ => Some(theme.background_secondary.into()),
-                        }
-                    };
-
-                    button::Style {
-                        background,
-                        text_color: if is_active { theme.text } else { theme.text_secondary },
-                        border: Border {
-                            color: theme.border,
-                            width: if is_active { 0.0 } else { 1.0 },
-                            ..Default::default()
-                        },
-                        ..Default::default()
+            let tab_button = button(text(view.component().title()).size(12).color(if is_active {
+                theme.text
+            } else {
+                theme.text_secondary
+            }))
+            .padding([8, 16])
+            .style(move |_theme, status| {
+                let background = if is_active {
+                    Some(theme.background.into())
+                } else {
+                    match status {
+                        button::Status::Hovered => Some(theme.background_secondary.into()),
+                        _ => Some(theme.background_secondary.into()),
                     }
-                })
-                .on_press(on_tab_click(component_id));
+                };
 
-                row.push(tab_button)
-            });
+                button::Style {
+                    background,
+                    text_color: if is_active {
+                        theme.text
+                    } else {
+                        theme.text_secondary
+                    },
+                    border: Border {
+                        color: theme.border,
+                        width: if is_active { 0.0 } else { 1.0 },
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }
+            })
+            .on_press(on_tab_click(component_id));
+
+            row.push(tab_button)
+        });
 
         // Wrap tabs in horizontal scrollable to prevent wrapping
-        let scrollable_tabs = scrollable(tabs)
-            .direction(scrollable::Direction::Horizontal(
-                scrollable::Scrollbar::new()
-                    .width(4)
-                    .scroller_width(4)
-            ));
+        let scrollable_tabs = scrollable(tabs).direction(scrollable::Direction::Horizontal(
+            scrollable::Scrollbar::new().width(4).scroller_width(4),
+        ));
 
         container(scrollable_tabs)
             .width(Fill)
@@ -211,34 +212,24 @@ impl LeftPanel {
 
         // If no active component, show a message
         let Some(component_id) = active_component else {
-            let content = column![
-                text("(No tabs enabled)")
-                    .size(11)
-                    .color(theme.text_secondary),
-            ]
+            let content = column![text("(No tabs enabled)")
+                .size(11)
+                .color(theme.text_secondary),]
             .spacing(10)
             .padding(15);
 
-            return container(content)
-                .width(Fill)
-                .height(Fill)
-                .into();
+            return container(content).width(Fill).height(Fill).into();
         };
 
         // Get the active view from the registry
         let Some(view) = view_registry.get_view(component_id) else {
-            let content = column![
-                text("(Component not found)")
-                    .size(11)
-                    .color(theme.text_secondary),
-            ]
+            let content = column![text("(Component not found)")
+                .size(11)
+                .color(theme.text_secondary),]
             .spacing(10)
             .padding(15);
 
-            return container(content)
-                .width(Fill)
-                .height(Fill)
-                .into();
+            return container(content).width(Fill).height(Fill).into();
         };
 
         // Render the component's view and map ComponentAction to Message

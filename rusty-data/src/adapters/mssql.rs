@@ -1,7 +1,7 @@
 use crate::adapter::{
-    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseMetadata, DatabaseType,
-    ForeignKeyInfo, IndexInfo, ProcedureInfo, QueryResult, QueryValue, ServerInfo, TableInfo,
-    TableMetadata, ViewInfo,
+    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseMetadata, DatabaseType, ForeignKeyInfo,
+    IndexInfo, ProcedureInfo, QueryResult, QueryValue, ServerInfo, TableInfo, TableMetadata,
+    ViewInfo,
 };
 use crate::error::{DataError, Result};
 use crate::pool::Pool;
@@ -26,7 +26,9 @@ impl MssqlAdapter {
     /// Validate database name
     fn validate_database_name(name: &str) -> Result<()> {
         if name.is_empty() {
-            return Err(DataError::Config("Database name cannot be empty".to_string()));
+            return Err(DataError::Config(
+                "Database name cannot be empty".to_string(),
+            ));
         }
         if name.len() > 128 {
             return Err(DataError::Config(format!(
@@ -194,13 +196,16 @@ impl DatabaseAdapter for MssqlAdapter {
             .map_err(|e| {
                 let elapsed = start.elapsed();
                 let error_msg = e.to_string();
-                let error_category = if error_msg.contains("Login failed") || error_msg.contains("authentication") {
-                    "authentication"
-                } else if error_msg.contains("Cannot open database") || error_msg.contains("does not exist") {
-                    "database_not_found"
-                } else {
-                    "unknown"
-                };
+                let error_category =
+                    if error_msg.contains("Login failed") || error_msg.contains("authentication") {
+                        "authentication"
+                    } else if error_msg.contains("Cannot open database")
+                        || error_msg.contains("does not exist")
+                    {
+                        "database_not_found"
+                    } else {
+                        "unknown"
+                    };
 
                 warn!(
                     error = %e,
@@ -214,7 +219,9 @@ impl DatabaseAdapter for MssqlAdapter {
                         "Authentication failed for database '{}' at {}:{} - {}",
                         database, host, port, e
                     ))
-                } else if error_msg.contains("Cannot open database") || error_msg.contains("does not exist") {
+                } else if error_msg.contains("Cannot open database")
+                    || error_msg.contains("does not exist")
+                {
                     DataError::Connection(format!(
                         "Database '{}' does not exist at {}:{}",
                         database, host, port
@@ -253,9 +260,10 @@ impl DatabaseAdapter for MssqlAdapter {
     async fn execute_query(&self, query: &str) -> Result<QueryResult> {
         Self::validate_query(query)?;
 
-        let pool = self.pool.as_ref().ok_or_else(|| {
-            DataError::Connection("Not connected to database".to_string())
-        })?;
+        let pool = self
+            .pool
+            .as_ref()
+            .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
         let query_snippet = if query.len() > 100 {
             format!("{}...", &query[..100])
@@ -316,11 +324,16 @@ impl DatabaseAdapter for MssqlAdapter {
             let error_msg = e.to_string();
 
             // Categorize SQL Server query errors
-            let error_category = if error_msg.contains("Incorrect syntax") || error_msg.contains("syntax error") {
+            let error_category = if error_msg.contains("Incorrect syntax")
+                || error_msg.contains("syntax error")
+            {
                 "syntax"
-            } else if error_msg.contains("Invalid object name") || error_msg.contains("does not exist") {
+            } else if error_msg.contains("Invalid object name")
+                || error_msg.contains("does not exist")
+            {
                 "object_not_found"
-            } else if error_msg.contains("UNIQUE constraint") || error_msg.contains("duplicate key") {
+            } else if error_msg.contains("UNIQUE constraint") || error_msg.contains("duplicate key")
+            {
                 "unique_constraint"
             } else if error_msg.contains("FOREIGN KEY constraint") {
                 "foreign_key_constraint"
@@ -342,26 +355,45 @@ impl DatabaseAdapter for MssqlAdapter {
 
             if error_msg.contains("Incorrect syntax") || error_msg.contains("syntax error") {
                 DataError::Query(format!("SQL syntax error: {} - Query: {}", e, query))
-            } else if error_msg.contains("Invalid object name") || error_msg.contains("does not exist") {
-                DataError::Query(format!("Table or column not found: {} - Query: {}", e, query))
-            } else if error_msg.contains("UNIQUE constraint") || error_msg.contains("duplicate key") {
-                DataError::Query(format!("Unique constraint violation: {} - Query: {}", e, query))
+            } else if error_msg.contains("Invalid object name")
+                || error_msg.contains("does not exist")
+            {
+                DataError::Query(format!(
+                    "Table or column not found: {} - Query: {}",
+                    e, query
+                ))
+            } else if error_msg.contains("UNIQUE constraint") || error_msg.contains("duplicate key")
+            {
+                DataError::Query(format!(
+                    "Unique constraint violation: {} - Query: {}",
+                    e, query
+                ))
             } else if error_msg.contains("FOREIGN KEY constraint") {
-                DataError::Query(format!("Foreign key constraint violation: {} - Query: {}", e, query))
+                DataError::Query(format!(
+                    "Foreign key constraint violation: {} - Query: {}",
+                    e, query
+                ))
             } else if error_msg.contains("CHECK constraint") {
-                DataError::Query(format!("Check constraint violation: {} - Query: {}", e, query))
+                DataError::Query(format!(
+                    "Check constraint violation: {} - Query: {}",
+                    e, query
+                ))
             } else if error_msg.contains("Cannot insert NULL") || error_msg.contains("NOT NULL") {
-                DataError::Query(format!("Not null constraint violation: {} - Query: {}", e, query))
+                DataError::Query(format!(
+                    "Not null constraint violation: {} - Query: {}",
+                    e, query
+                ))
             } else {
                 DataError::Query(format!("Query failed: {} - Query: {}", e, query))
             }
         })?;
 
         // Get column information from the first result set
-        let columns_opt = result.columns().await.map_err(|e| {
-            DataError::Query(format!("Failed to get columns: {}", e))
-        })?;
-        
+        let columns_opt = result
+            .columns()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to get columns: {}", e)))?;
+
         let columns: Vec<String> = if let Some(cols) = columns_opt {
             cols.iter().map(|col| col.name().to_string()).collect()
         } else {
@@ -371,10 +403,12 @@ impl DatabaseAdapter for MssqlAdapter {
         // Collect rows
         let mut rows = Vec::new();
         let mut row_count = 0u64;
-        
-        while let Some(item) = result.try_next().await.map_err(|e| {
-            DataError::Query(format!("Failed to fetch row: {}", e))
-        })? {
+
+        while let Some(item) = result
+            .try_next()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to fetch row: {}", e)))?
+        {
             match item {
                 QueryItem::Row(row) => {
                     let values = Self::row_to_values(&row)?;
@@ -541,7 +575,11 @@ impl DatabaseAdapter for MssqlAdapter {
         })
     }
 
-    async fn test_connection(&self, config: &ConnectionConfig, password: Option<&str>) -> Result<bool> {
+    async fn test_connection(
+        &self,
+        config: &ConnectionConfig,
+        password: Option<&str>,
+    ) -> Result<bool> {
         let tiberius_config = Self::build_config(config, password)?;
 
         match TcpStream::connect(tiberius_config.get_addr()).await {
@@ -566,20 +604,28 @@ impl DatabaseAdapter for MssqlAdapter {
     async fn get_server_info(&self) -> Result<ServerInfo> {
         info!("Retrieving SQL Server info");
 
-        let mut client = self.pool.as_ref()
+        let mut client = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
-            .lock().await;
+            .lock()
+            .await;
 
         // Get version (cast SERVERPROPERTY to avoid SQL_VARIANT type issues)
         let version_query = "SELECT @@VERSION as version, CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)) as product_version, CAST(SERVERPROPERTY('Edition') AS NVARCHAR(128)) as edition";
-        let mut stream = client.query(version_query, &[]).await
+        let mut stream = client
+            .query(version_query, &[])
+            .await
             .map_err(|e| DataError::Query(format!("Failed to get server version: {}", e)))?;
 
         let mut extra_info = std::collections::HashMap::new();
         let mut version = String::from("unknown");
 
-        while let Some(item) = stream.try_next().await
-            .map_err(|e| DataError::Query(format!("Failed to iterate version result: {}", e)))? {
+        while let Some(item) = stream
+            .try_next()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to iterate version result: {}", e)))?
+        {
             if let QueryItem::Row(row) = item {
                 if let Ok(Some(v)) = row.try_get::<&str, _>("version") {
                     version = v.to_string();
@@ -604,9 +650,12 @@ impl DatabaseAdapter for MssqlAdapter {
     async fn get_database_metadata(&self, database_name: &str) -> Result<DatabaseMetadata> {
         info!("Retrieving metadata for database: {}", database_name);
 
-        let mut client = self.pool.as_ref()
+        let mut client = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
-            .lock().await;
+            .lock()
+            .await;
 
         let query = format!(
             "SELECT
@@ -624,8 +673,12 @@ impl DatabaseAdapter for MssqlAdapter {
             database_name
         );
 
-        let mut stream = client.query(query.as_str(), &[]).await
-            .map_err(|e| DataError::Query(format!("Failed to get database metadata for '{}': {}", database_name, e)))?;
+        let mut stream = client.query(query.as_str(), &[]).await.map_err(|e| {
+            DataError::Query(format!(
+                "Failed to get database metadata for '{}': {}",
+                database_name, e
+            ))
+        })?;
 
         let mut size_bytes = None;
         let mut owner = None;
@@ -633,8 +686,11 @@ impl DatabaseAdapter for MssqlAdapter {
         let created_at = None;
         let mut extra_info = std::collections::HashMap::new();
 
-        while let Some(item) = stream.try_next().await
-            .map_err(|e| DataError::Query(format!("Failed to iterate database metadata: {}", e)))? {
+        while let Some(item) = stream
+            .try_next()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to iterate database metadata: {}", e)))?
+        {
             if let QueryItem::Row(row) = item {
                 if let Ok(Some(size_mb)) = row.try_get::<i64, _>("size_mb") {
                     size_bytes = Some(size_mb * 1024 * 1024); // Convert MB to bytes
@@ -665,15 +721,22 @@ impl DatabaseAdapter for MssqlAdapter {
     }
 
     #[instrument(skip(self), fields(table = %table_name))]
-    async fn get_table_metadata(&self, table_name: &str, schema: Option<&str>) -> Result<TableMetadata> {
+    async fn get_table_metadata(
+        &self,
+        table_name: &str,
+        schema: Option<&str>,
+    ) -> Result<TableMetadata> {
         Self::validate_table_name(table_name)?;
 
         info!("Retrieving metadata for table: {}", table_name);
 
         let schema_name = schema.unwrap_or("dbo");
-        let mut client = self.pool.as_ref()
+        let mut client = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
-            .lock().await;
+            .lock()
+            .await;
 
         let query = format!(
             "SELECT
@@ -693,15 +756,22 @@ impl DatabaseAdapter for MssqlAdapter {
             table_name, schema_name
         );
 
-        let mut stream = client.query(query.as_str(), &[]).await
-            .map_err(|e| DataError::Query(format!("Failed to get table metadata for '{}': {}", table_name, e)))?;
+        let mut stream = client.query(query.as_str(), &[]).await.map_err(|e| {
+            DataError::Query(format!(
+                "Failed to get table metadata for '{}': {}",
+                table_name, e
+            ))
+        })?;
 
         let mut size_bytes = None;
         let mut row_count = None;
         let mut table_type = None;
 
-        while let Some(item) = stream.try_next().await
-            .map_err(|e| DataError::Query(format!("Failed to iterate table metadata: {}", e)))? {
+        while let Some(item) = stream
+            .try_next()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to iterate table metadata: {}", e)))?
+        {
             if let QueryItem::Row(row) = item {
                 if let Ok(Some(size_kb)) = row.try_get::<i64, _>("size_kb") {
                     size_bytes = Some(size_kb * 1024); // Convert KB to bytes
@@ -732,9 +802,12 @@ impl DatabaseAdapter for MssqlAdapter {
         info!("Retrieving indexes for table: {}", table_name);
 
         let schema_name = schema.unwrap_or("dbo");
-        let mut client = self.pool.as_ref()
+        let mut client = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
-            .lock().await;
+            .lock()
+            .await;
 
         let query = format!(
             "SELECT
@@ -753,26 +826,42 @@ impl DatabaseAdapter for MssqlAdapter {
             table_name, schema_name
         );
 
-        let mut stream = client.query(query.as_str(), &[]).await
-            .map_err(|e| DataError::Query(format!("Failed to get indexes for '{}': {}", table_name, e)))?;
+        let mut stream = client.query(query.as_str(), &[]).await.map_err(|e| {
+            DataError::Query(format!("Failed to get indexes for '{}': {}", table_name, e))
+        })?;
 
         let mut indexes = Vec::new();
 
-        while let Some(item) = stream.try_next().await
-            .map_err(|e| DataError::Query(format!("Failed to iterate indexes: {}", e)))? {
+        while let Some(item) = stream
+            .try_next()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to iterate indexes: {}", e)))?
+        {
             if let QueryItem::Row(row) = item {
-                let index_name = row.try_get::<&str, _>("index_name")
+                let index_name = row
+                    .try_get::<&str, _>("index_name")
                     .map(|s| s.unwrap_or("").to_string())
                     .unwrap_or_default();
 
-                let columns_str = row.try_get::<&str, _>("columns")
+                let columns_str = row
+                    .try_get::<&str, _>("columns")
                     .map(|s| s.unwrap_or("").to_string())
                     .unwrap_or_default();
-                let columns: Vec<String> = columns_str.split(',').map(|s| s.trim().to_string()).collect();
+                let columns: Vec<String> = columns_str
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .collect();
 
-                let is_unique = row.try_get::<bool, _>("is_unique").unwrap_or(Some(false)).unwrap_or(false);
-                let is_primary = row.try_get::<bool, _>("is_primary_key").unwrap_or(Some(false)).unwrap_or(false);
-                let index_type = row.try_get::<&str, _>("type_desc")
+                let is_unique = row
+                    .try_get::<bool, _>("is_unique")
+                    .unwrap_or(Some(false))
+                    .unwrap_or(false);
+                let is_primary = row
+                    .try_get::<bool, _>("is_primary_key")
+                    .unwrap_or(Some(false))
+                    .unwrap_or(false);
+                let index_type = row
+                    .try_get::<&str, _>("type_desc")
                     .map(|s| s.map(|s| s.to_string()))
                     .unwrap_or(None);
 
@@ -792,15 +881,22 @@ impl DatabaseAdapter for MssqlAdapter {
     }
 
     #[instrument(skip(self), fields(table = %table_name))]
-    async fn get_foreign_keys(&self, table_name: &str, schema: Option<&str>) -> Result<Vec<ForeignKeyInfo>> {
+    async fn get_foreign_keys(
+        &self,
+        table_name: &str,
+        schema: Option<&str>,
+    ) -> Result<Vec<ForeignKeyInfo>> {
         Self::validate_table_name(table_name)?;
 
         info!("Retrieving foreign keys for table: {}", table_name);
 
         let schema_name = schema.unwrap_or("dbo");
-        let mut client = self.pool.as_ref()
+        let mut client = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
-            .lock().await;
+            .lock()
+            .await;
 
         let query = format!(
             "SELECT
@@ -824,41 +920,61 @@ impl DatabaseAdapter for MssqlAdapter {
             table_name, schema_name
         );
 
-        let mut stream = client.query(query.as_str(), &[]).await
-            .map_err(|e| DataError::Query(format!("Failed to get foreign keys for '{}': {}", table_name, e)))?;
+        let mut stream = client.query(query.as_str(), &[]).await.map_err(|e| {
+            DataError::Query(format!(
+                "Failed to get foreign keys for '{}': {}",
+                table_name, e
+            ))
+        })?;
 
         let mut fks = Vec::new();
 
-        while let Some(item) = stream.try_next().await
-            .map_err(|e| DataError::Query(format!("Failed to iterate foreign keys: {}", e)))? {
+        while let Some(item) = stream
+            .try_next()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to iterate foreign keys: {}", e)))?
+        {
             if let QueryItem::Row(row) = item {
-                let fk_name = row.try_get::<&str, _>("fk_name")
+                let fk_name = row
+                    .try_get::<&str, _>("fk_name")
                     .map(|s| s.unwrap_or("").to_string())
                     .unwrap_or_default();
 
-                let columns_str = row.try_get::<&str, _>("columns")
+                let columns_str = row
+                    .try_get::<&str, _>("columns")
                     .map(|s| s.unwrap_or("").to_string())
                     .unwrap_or_default();
-                let columns: Vec<String> = columns_str.split(',').map(|s| s.trim().to_string()).collect();
+                let columns: Vec<String> = columns_str
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .collect();
 
-                let referenced_table = row.try_get::<&str, _>("referenced_table")
+                let referenced_table = row
+                    .try_get::<&str, _>("referenced_table")
                     .map(|s| s.unwrap_or("").to_string())
                     .unwrap_or_default();
 
-                let referenced_schema = row.try_get::<&str, _>("referenced_schema")
+                let referenced_schema = row
+                    .try_get::<&str, _>("referenced_schema")
                     .map(|s| s.map(|s| s.to_string()))
                     .unwrap_or(None);
 
-                let referenced_columns_str = row.try_get::<&str, _>("referenced_columns")
+                let referenced_columns_str = row
+                    .try_get::<&str, _>("referenced_columns")
                     .map(|s| s.unwrap_or("").to_string())
                     .unwrap_or_default();
-                let referenced_columns: Vec<String> = referenced_columns_str.split(',').map(|s| s.trim().to_string()).collect();
+                let referenced_columns: Vec<String> = referenced_columns_str
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .collect();
 
-                let on_delete = row.try_get::<&str, _>("on_delete")
+                let on_delete = row
+                    .try_get::<&str, _>("on_delete")
                     .map(|s| s.map(|s| s.to_string()))
                     .unwrap_or(None);
 
-                let on_update = row.try_get::<&str, _>("on_update")
+                let on_update = row
+                    .try_get::<&str, _>("on_update")
                     .map(|s| s.map(|s| s.to_string()))
                     .unwrap_or(None);
 
@@ -884,9 +1000,12 @@ impl DatabaseAdapter for MssqlAdapter {
         info!("Retrieving views");
 
         let schema_name = schema.unwrap_or("dbo");
-        let mut client = self.pool.as_ref()
+        let mut client = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
-            .lock().await;
+            .lock()
+            .await;
 
         let query = format!(
             "SELECT v.name, s.name as schema_name
@@ -896,19 +1015,26 @@ impl DatabaseAdapter for MssqlAdapter {
             schema_name
         );
 
-        let mut stream = client.query(query.as_str(), &[]).await
+        let mut stream = client
+            .query(query.as_str(), &[])
+            .await
             .map_err(|e| DataError::Query(format!("Failed to get views: {}", e)))?;
 
         let mut views = Vec::new();
 
-        while let Some(item) = stream.try_next().await
-            .map_err(|e| DataError::Query(format!("Failed to iterate views: {}", e)))? {
+        while let Some(item) = stream
+            .try_next()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to iterate views: {}", e)))?
+        {
             if let QueryItem::Row(row) = item {
-                let name = row.try_get::<&str, _>("name")
+                let name = row
+                    .try_get::<&str, _>("name")
                     .map(|s| s.unwrap_or("").to_string())
                     .unwrap_or_default();
 
-                let schema = row.try_get::<&str, _>("schema_name")
+                let schema = row
+                    .try_get::<&str, _>("schema_name")
                     .map(|s| s.map(|s| s.to_string()))
                     .unwrap_or(None);
 
@@ -924,24 +1050,38 @@ impl DatabaseAdapter for MssqlAdapter {
     }
 
     #[instrument(skip(self), fields(view = %view_name))]
-    async fn get_view_definition(&self, view_name: &str, schema: Option<&str>) -> Result<Option<String>> {
+    async fn get_view_definition(
+        &self,
+        view_name: &str,
+        schema: Option<&str>,
+    ) -> Result<Option<String>> {
         info!("Retrieving view definition for: {}", view_name);
 
         let schema_name = schema.unwrap_or("dbo");
-        let mut client = self.pool.as_ref()
+        let mut client = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
-            .lock().await;
+            .lock()
+            .await;
 
         let query = format!(
             "SELECT OBJECT_DEFINITION(OBJECT_ID('{}.{}')) as definition",
             schema_name, view_name
         );
 
-        let mut stream = client.query(query.as_str(), &[]).await
-            .map_err(|e| DataError::Query(format!("Failed to get view definition for '{}': {}", view_name, e)))?;
+        let mut stream = client.query(query.as_str(), &[]).await.map_err(|e| {
+            DataError::Query(format!(
+                "Failed to get view definition for '{}': {}",
+                view_name, e
+            ))
+        })?;
 
-        while let Some(item) = stream.try_next().await
-            .map_err(|e| DataError::Query(format!("Failed to iterate view definition: {}", e)))? {
+        while let Some(item) = stream
+            .try_next()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to iterate view definition: {}", e)))?
+        {
             if let QueryItem::Row(row) = item {
                 if let Ok(Some(def)) = row.try_get::<&str, _>("definition") {
                     return Ok(Some(def.to_string()));
@@ -957,9 +1097,12 @@ impl DatabaseAdapter for MssqlAdapter {
         info!("Listing stored procedures");
 
         let schema_name = schema.unwrap_or("dbo");
-        let mut client = self.pool.as_ref()
+        let mut client = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?
-            .lock().await;
+            .lock()
+            .await;
 
         let query = format!(
             "SELECT p.name, s.name as schema_name, p.type_desc
@@ -969,19 +1112,26 @@ impl DatabaseAdapter for MssqlAdapter {
             schema_name
         );
 
-        let mut stream = client.query(query.as_str(), &[]).await
+        let mut stream = client
+            .query(query.as_str(), &[])
+            .await
             .map_err(|e| DataError::Query(format!("Failed to list stored procedures: {}", e)))?;
 
         let mut procedures = Vec::new();
 
-        while let Some(item) = stream.try_next().await
-            .map_err(|e| DataError::Query(format!("Failed to iterate procedures: {}", e)))? {
+        while let Some(item) = stream
+            .try_next()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to iterate procedures: {}", e)))?
+        {
             if let QueryItem::Row(row) = item {
-                let name = row.try_get::<&str, _>("name")
+                let name = row
+                    .try_get::<&str, _>("name")
                     .map(|s| s.unwrap_or("").to_string())
                     .unwrap_or_default();
 
-                let schema = row.try_get::<&str, _>("schema_name")
+                let schema = row
+                    .try_get::<&str, _>("schema_name")
                     .map(|s| s.map(|s| s.to_string()))
                     .unwrap_or(None);
 
@@ -1062,9 +1212,10 @@ impl DatabaseAdapter for MssqlAdapter {
                     QueryValue::Text(s) => format!("'{}'", s.replace("'", "''")), // Escape single quotes
                     QueryValue::Bytes(b) => {
                         // Convert bytes to hex string manually
-                        let hex_str: String = b.iter().map(|byte| format!("{:02X}", byte)).collect();
+                        let hex_str: String =
+                            b.iter().map(|byte| format!("{:02X}", byte)).collect();
                         format!("0x{}", hex_str)
-                    },
+                    }
                 })
                 .collect();
             value_rows.push(format!("({})", values.join(", ")));
@@ -1082,20 +1233,19 @@ impl DatabaseAdapter for MssqlAdapter {
         debug!("Bulk insert query: {}", query);
 
         // Execute query
-        let mut stream = client
-            .query(query.as_str(), &[])
-            .await
-            .map_err(|e| {
-                DataError::Query(format!(
-                    "Failed to bulk insert into {}.{}: {}",
-                    schema_name, table_name, e
-                ))
-            })?;
+        let mut stream = client.query(query.as_str(), &[]).await.map_err(|e| {
+            DataError::Query(format!(
+                "Failed to bulk insert into {}.{}: {}",
+                schema_name, table_name, e
+            ))
+        })?;
 
         // Consume the result stream
-        while let Some(_item) = stream.try_next().await.map_err(|e| {
-            DataError::Query(format!("Failed to get result: {}", e))
-        })? {
+        while let Some(_item) = stream
+            .try_next()
+            .await
+            .map_err(|e| DataError::Query(format!("Failed to get result: {}", e)))?
+        {
             // Just consume the stream
         }
 
@@ -1163,10 +1313,11 @@ impl DatabaseAdapter for MssqlAdapter {
                         QueryValue::Float(f) => f.to_string(),
                         QueryValue::Text(s) => format!("'{}'", s.replace("'", "''")),
                         QueryValue::Bytes(b) => {
-                        // Convert bytes to hex string manually
-                        let hex_str: String = b.iter().map(|byte| format!("{:02X}", byte)).collect();
-                        format!("0x{}", hex_str)
-                    },
+                            // Convert bytes to hex string manually
+                            let hex_str: String =
+                                b.iter().map(|byte| format!("{:02X}", byte)).collect();
+                            format!("0x{}", hex_str)
+                        }
                     };
                     format!("{} = {}", column, val_str)
                 })
@@ -1182,24 +1333,24 @@ impl DatabaseAdapter for MssqlAdapter {
 
             debug!("Bulk update query: {}", query);
 
-            let mut stream = client
-                .query(query.as_str(), &[])
-                .await
-                .map_err(|e| {
-                    DataError::Query(format!(
-                        "Failed to bulk update {}.{}: {}",
-                        schema_name, table_name, e
-                    ))
-                })?;
+            let mut stream = client.query(query.as_str(), &[]).await.map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to bulk update {}.{}: {}",
+                    schema_name, table_name, e
+                ))
+            })?;
 
             // For UPDATE, we need to count affected rows
             // SQL Server doesn't return this directly, assume 1 per update
             total_affected += 1;
 
             // Consume the stream
-            while let Some(_) = stream.try_next().await.map_err(|e| {
-                DataError::Query(format!("Failed to get result: {}", e))
-            })? {}
+            while let Some(_) = stream
+                .try_next()
+                .await
+                .map_err(|e| DataError::Query(format!("Failed to get result: {}", e)))?
+            {
+            }
         }
 
         let elapsed = start.elapsed();
@@ -1270,9 +1421,12 @@ impl DatabaseAdapter for MssqlAdapter {
             total_affected += 1;
 
             // Consume the stream
-            while let Some(_) = stream.try_next().await.map_err(|e| {
-                DataError::Query(format!("Failed to get result: {}", e))
-            })? {}
+            while let Some(_) = stream
+                .try_next()
+                .await
+                .map_err(|e| DataError::Query(format!("Failed to get result: {}", e)))?
+            {
+            }
         }
 
         let elapsed = start.elapsed();
@@ -1399,9 +1553,7 @@ mod tests {
             vec![QueryValue::Int(2), QueryValue::Text("Bob".to_string())],
         ];
 
-        let result = adapter
-            .bulk_insert("users", &columns, &rows, None)
-            .await;
+        let result = adapter.bulk_insert("users", &columns, &rows, None).await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), DataError::Connection(_)));
     }

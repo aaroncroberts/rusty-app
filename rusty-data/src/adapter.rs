@@ -209,7 +209,11 @@ pub trait DatabaseAdapter: Send + Sync {
     async fn describe_table(&self, table_name: &str, schema: Option<&str>) -> Result<TableInfo>;
 
     /// Test the connection without fully connecting
-    async fn test_connection(&self, config: &ConnectionConfig, password: Option<&str>) -> Result<bool>;
+    async fn test_connection(
+        &self,
+        config: &ConnectionConfig,
+        password: Option<&str>,
+    ) -> Result<bool>;
 
     /// Get the database type this adapter handles
     fn database_type(&self) -> DatabaseType;
@@ -240,7 +244,11 @@ pub trait DatabaseAdapter: Send + Sync {
     }
 
     /// Get metadata about a specific table
-    async fn get_table_metadata(&self, _table_name: &str, _schema: Option<&str>) -> Result<TableMetadata> {
+    async fn get_table_metadata(
+        &self,
+        _table_name: &str,
+        _schema: Option<&str>,
+    ) -> Result<TableMetadata> {
         // Default implementation returns minimal info
         Ok(TableMetadata {
             name: _table_name.to_string(),
@@ -253,13 +261,21 @@ pub trait DatabaseAdapter: Send + Sync {
     }
 
     /// Get all indexes for a table
-    async fn get_indexes(&self, _table_name: &str, _schema: Option<&str>) -> Result<Vec<IndexInfo>> {
+    async fn get_indexes(
+        &self,
+        _table_name: &str,
+        _schema: Option<&str>,
+    ) -> Result<Vec<IndexInfo>> {
         // Default implementation returns empty list
         Ok(Vec::new())
     }
 
     /// Get all foreign keys for a table
-    async fn get_foreign_keys(&self, _table_name: &str, _schema: Option<&str>) -> Result<Vec<ForeignKeyInfo>> {
+    async fn get_foreign_keys(
+        &self,
+        _table_name: &str,
+        _schema: Option<&str>,
+    ) -> Result<Vec<ForeignKeyInfo>> {
         // Default implementation returns empty list
         Ok(Vec::new())
     }
@@ -271,7 +287,11 @@ pub trait DatabaseAdapter: Send + Sync {
     }
 
     /// Get view definition
-    async fn get_view_definition(&self, _view_name: &str, _schema: Option<&str>) -> Result<Option<String>> {
+    async fn get_view_definition(
+        &self,
+        _view_name: &str,
+        _schema: Option<&str>,
+    ) -> Result<Option<String>> {
         // Default implementation returns None
         Ok(None)
     }
@@ -296,7 +316,7 @@ pub trait DatabaseAdapter: Send + Sync {
         // Default implementation falls back to individual inserts
         // Adapters should override with database-specific bulk insert mechanisms
         Err(crate::error::DataError::NotSupported(
-            "Bulk insert not implemented for this adapter".to_string()
+            "Bulk insert not implemented for this adapter".to_string(),
         ))
     }
 
@@ -310,7 +330,7 @@ pub trait DatabaseAdapter: Send + Sync {
     ) -> Result<u64> {
         // Default implementation falls back to individual updates
         Err(crate::error::DataError::NotSupported(
-            "Bulk update not implemented for this adapter".to_string()
+            "Bulk update not implemented for this adapter".to_string(),
         ))
     }
 
@@ -324,7 +344,7 @@ pub trait DatabaseAdapter: Send + Sync {
     ) -> Result<u64> {
         // Default implementation falls back to individual deletes
         Err(crate::error::DataError::NotSupported(
-            "Bulk delete not implemented for this adapter".to_string()
+            "Bulk delete not implemented for this adapter".to_string(),
         ))
     }
 }
@@ -367,7 +387,11 @@ mod tests {
 
     #[async_trait]
     impl DatabaseAdapter for MockAdapter {
-        async fn connect(&mut self, _config: &ConnectionConfig, _password: Option<&str>) -> Result<()> {
+        async fn connect(
+            &mut self,
+            _config: &ConnectionConfig,
+            _password: Option<&str>,
+        ) -> Result<()> {
             if self.fail_on_connect {
                 return Err(crate::error::DataError::Connection(
                     "Mock connection failure".to_string(),
@@ -388,7 +412,9 @@ mod tests {
 
         async fn execute_query(&self, _query: &str) -> Result<QueryResult> {
             if self.fail_on_query {
-                return Err(crate::error::DataError::Query("Mock query failure".to_string()));
+                return Err(crate::error::DataError::Query(
+                    "Mock query failure".to_string(),
+                ));
             }
 
             Ok(QueryResult {
@@ -417,7 +443,11 @@ mod tests {
             ])
         }
 
-        async fn describe_table(&self, table_name: &str, _schema: Option<&str>) -> Result<TableInfo> {
+        async fn describe_table(
+            &self,
+            table_name: &str,
+            _schema: Option<&str>,
+        ) -> Result<TableInfo> {
             Ok(TableInfo {
                 name: table_name.to_string(),
                 schema: Some("public".to_string()),
@@ -440,7 +470,11 @@ mod tests {
             })
         }
 
-        async fn test_connection(&self, _config: &ConnectionConfig, _password: Option<&str>) -> Result<bool> {
+        async fn test_connection(
+            &self,
+            _config: &ConnectionConfig,
+            _password: Option<&str>,
+        ) -> Result<bool> {
             Ok(!self.fail_on_connect)
         }
 
@@ -546,7 +580,10 @@ mod tests {
         let adapter = MockAdapter::new(DatabaseType::Postgres);
         let config = test_connection_config(DatabaseType::Postgres);
 
-        let result = adapter.test_connection(&config, Some("password")).await.unwrap();
+        let result = adapter
+            .test_connection(&config, Some("password"))
+            .await
+            .unwrap();
         assert!(result);
     }
 

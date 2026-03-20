@@ -108,35 +108,24 @@ impl Component for PropertiesComponent {
                     .color(theme.text_secondary),
             );
         } else if self.properties.is_empty() {
-            content_col = content_col.push(
-                text("(No properties)")
-                    .size(11)
-                    .color(theme.text_secondary),
-            );
+            content_col =
+                content_col.push(text("(No properties)").size(11).color(theme.text_secondary));
         } else {
             for prop in &self.properties {
                 content_col = content_col.push(
                     column![
-                        text(&prop.key)
-                            .size(10)
-                            .color(theme.text_secondary),
-                        text(&prop.value)
-                            .size(11)
-                            .color(theme.text),
+                        text(&prop.key).size(10).color(theme.text_secondary),
+                        text(&prop.value).size(11).color(theme.text),
                     ]
                     .spacing(2),
                 );
             }
         }
 
-        container(
-            scrollable(content_col.padding(15))
-                .width(Fill)
-                .height(Fill),
-        )
-        .width(Fill)
-        .height(Fill)
-        .into()
+        container(scrollable(content_col.padding(15)).width(Fill).height(Fill))
+            .width(Fill)
+            .height(Fill)
+            .into()
     }
 }
 

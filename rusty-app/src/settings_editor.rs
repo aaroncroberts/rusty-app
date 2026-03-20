@@ -71,9 +71,7 @@ impl SettingsEditor {
         success_message: &Option<String>,
         on_message: impl Fn(SettingsEditorMessage) -> Message + 'a + Copy,
     ) -> Element<'a, Message> {
-        let title = text("Application Settings")
-            .size(20)
-            .color(self.theme.text);
+        let title = text("Application Settings").size(20).color(self.theme.text);
 
         // Messages section
         let mut messages = column![].spacing(10);
@@ -82,7 +80,7 @@ impl SettingsEditor {
             let error_container = container(
                 text(format!("❌ {}", error))
                     .size(12)
-                    .color([1.0, 0.3, 0.3])
+                    .color([1.0, 0.3, 0.3]),
             )
             .padding(10)
             .style(|_theme| container::Style {
@@ -101,7 +99,7 @@ impl SettingsEditor {
             let success_container = container(
                 text(format!("✓ {}", success))
                     .size(12)
-                    .color([0.3, 1.0, 0.3])
+                    .color([0.3, 1.0, 0.3]),
             )
             .padding(10)
             .style(|_theme| container::Style {
@@ -324,7 +322,9 @@ impl SettingsEditor {
 
         let logging_content = column![
             section_title,
-            text("──────────────────────────").size(10).color(self.theme.border),
+            text("──────────────────────────")
+                .size(10)
+                .color(self.theme.border),
             global_filter_row,
             console_title,
             console_enabled,
@@ -403,7 +403,9 @@ impl SettingsEditor {
 
         let ui_content = column![
             section_title,
-            text("──────────────────────────").size(10).color(self.theme.border),
+            text("──────────────────────────")
+                .size(10)
+                .color(self.theme.border),
             theme_row,
             panel_width_row,
             show_panel_row,

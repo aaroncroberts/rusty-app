@@ -94,9 +94,7 @@ impl MongoDBConnectionForm {
     ) -> Element<'a, Message> {
         let theme = self.theme;
 
-        let title = text("New MongoDB Connection")
-            .size(18)
-            .color(theme.text);
+        let title = text("New MongoDB Connection").size(18).color(theme.text);
 
         let mut form_fields = column![
             title,

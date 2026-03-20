@@ -1,7 +1,7 @@
 use crate::adapter::{
-    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseMetadata, DatabaseType,
-    ForeignKeyInfo, IndexInfo, ProcedureInfo, QueryResult, QueryValue, ServerInfo,
-    TableInfo, TableMetadata, ViewInfo,
+    ColumnInfo, ConnectionConfig, DatabaseAdapter, DatabaseMetadata, DatabaseType, ForeignKeyInfo,
+    IndexInfo, ProcedureInfo, QueryResult, QueryValue, ServerInfo, TableInfo, TableMetadata,
+    ViewInfo,
 };
 use crate::error::{DataError, Result};
 use async_trait::async_trait;
@@ -23,7 +23,9 @@ impl PostgresAdapter {
     /// Validate database name
     fn validate_database_name(name: &str) -> Result<()> {
         if name.is_empty() {
-            return Err(DataError::Config("Database name cannot be empty".to_string()));
+            return Err(DataError::Config(
+                "Database name cannot be empty".to_string(),
+            ));
         }
         if name.len() > 63 {
             return Err(DataError::Config(format!(
@@ -57,7 +59,10 @@ impl PostgresAdapter {
     }
 
     /// Build a connection string from configuration
-    fn build_connection_string(config: &ConnectionConfig, password: Option<&str>) -> Result<String> {
+    fn build_connection_string(
+        config: &ConnectionConfig,
+        password: Option<&str>,
+    ) -> Result<String> {
         Self::validate_database_name(&config.database)?;
 
         let host = config.host.as_deref().unwrap_or("localhost");
@@ -223,9 +228,13 @@ impl DatabaseAdapter for PostgresAdapter {
                 let error_msg = e.to_string();
 
                 // Categorize connection errors
-                let error_category = if error_msg.contains("password authentication failed") || error_msg.contains("no pg_hba.conf entry") {
+                let error_category = if error_msg.contains("password authentication failed")
+                    || error_msg.contains("no pg_hba.conf entry")
+                {
                     "authentication"
-                } else if error_msg.contains("could not translate host name") || error_msg.contains("Connection refused") {
+                } else if error_msg.contains("could not translate host name")
+                    || error_msg.contains("Connection refused")
+                {
                     "network"
                 } else if error_msg.contains("does not exist") {
                     "database_not_found"
@@ -320,42 +329,55 @@ impl DatabaseAdapter for PostgresAdapter {
 
         let start = std::time::Instant::now();
 
-        let rows = sqlx::query(query)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| {
-                let elapsed = start.elapsed();
-                let error_msg = e.to_string();
+        let rows = sqlx::query(query).fetch_all(pool).await.map_err(|e| {
+            let elapsed = start.elapsed();
+            let error_msg = e.to_string();
 
-                // Categorize query errors
-                let error_category = if error_msg.contains("syntax error") {
-                    "syntax_error"
-                } else if error_msg.contains("permission denied") || error_msg.contains("must be owner") {
-                    "permission_denied"
-                } else if error_msg.contains("does not exist") {
-                    "object_not_found"
-                } else if error_msg.contains("violates") {
-                    "constraint_violation"
-                } else {
-                    "unknown"
-                };
+            // Categorize query errors
+            let error_category = if error_msg.contains("syntax error") {
+                "syntax_error"
+            } else if error_msg.contains("permission denied") || error_msg.contains("must be owner")
+            {
+                "permission_denied"
+            } else if error_msg.contains("does not exist") {
+                "object_not_found"
+            } else if error_msg.contains("violates") {
+                "constraint_violation"
+            } else {
+                "unknown"
+            };
 
-                warn!(
-                    error = %e,
-                    error_category = %error_category,
-                    query_snippet = %query_snippet,
-                    elapsed_ms = elapsed.as_millis(),
-                    "Query execution failed"
-                );
+            warn!(
+                error = %e,
+                error_category = %error_category,
+                query_snippet = %query_snippet,
+                elapsed_ms = elapsed.as_millis(),
+                "Query execution failed"
+            );
 
-                match error_category {
-                    "syntax_error" => DataError::Query(format!("SQL syntax error in query: {} - Error: {}", query_snippet, e)),
-                    "permission_denied" => DataError::Query(format!("Permission denied executing query: {} - Error: {}", query_snippet, e)),
-                    "object_not_found" => DataError::Query(format!("Object not found executing query: {} - Error: {}", query_snippet, e)),
-                    "constraint_violation" => DataError::Query(format!("Constraint violation in query: {} - Error: {}", query_snippet, e)),
-                    _ => DataError::Query(format!("Query execution failed: {} - Error: {}", query_snippet, e)),
-                }
-            })?;
+            match error_category {
+                "syntax_error" => DataError::Query(format!(
+                    "SQL syntax error in query: {} - Error: {}",
+                    query_snippet, e
+                )),
+                "permission_denied" => DataError::Query(format!(
+                    "Permission denied executing query: {} - Error: {}",
+                    query_snippet, e
+                )),
+                "object_not_found" => DataError::Query(format!(
+                    "Object not found executing query: {} - Error: {}",
+                    query_snippet, e
+                )),
+                "constraint_violation" => DataError::Query(format!(
+                    "Constraint violation in query: {} - Error: {}",
+                    query_snippet, e
+                )),
+                _ => DataError::Query(format!(
+                    "Query execution failed: {} - Error: {}",
+                    query_snippet, e
+                )),
+            }
+        })?;
 
         let fetch_elapsed = start.elapsed();
 
@@ -441,13 +463,23 @@ impl DatabaseAdapter for PostgresAdapter {
             .bind(schema_name)
             .fetch_all(pool)
             .await
-            .map_err(|e| DataError::Query(format!("Failed to list tables in schema '{}': {}", schema_name, e)))?;
+            .map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to list tables in schema '{}': {}",
+                    schema_name, e
+                ))
+            })?;
 
         let tables: Vec<String> = rows
             .iter()
             .map(|row| row.try_get::<String, _>("table_name"))
             .collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(|e| DataError::Query(format!("Failed to parse table names from schema '{}': {}", schema_name, e)))?;
+            .map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to parse table names from schema '{}': {}",
+                    schema_name, e
+                ))
+            })?;
 
         Ok(tables)
     }
@@ -518,17 +550,23 @@ impl DatabaseAdapter for PostgresAdapter {
             .map(|row| {
                 Ok(ColumnInfo {
                     name: row.try_get("column_name").map_err(|e| {
-                        DataError::Query(format!("Failed to get column name for table '{}.{}': {}", schema_name, table_name, e))
+                        DataError::Query(format!(
+                            "Failed to get column name for table '{}.{}': {}",
+                            schema_name, table_name, e
+                        ))
                     })?,
                     data_type: row.try_get("data_type").map_err(|e| {
-                        DataError::Query(format!("Failed to get data type for table '{}.{}': {}", schema_name, table_name, e))
+                        DataError::Query(format!(
+                            "Failed to get data type for table '{}.{}': {}",
+                            schema_name, table_name, e
+                        ))
                     })?,
-                    nullable: row
-                        .try_get::<String, _>("is_nullable")
-                        .map_err(|e| {
-                            DataError::Query(format!("Failed to get nullable flag for table '{}.{}': {}", schema_name, table_name, e))
-                        })?
-                        == "YES",
+                    nullable: row.try_get::<String, _>("is_nullable").map_err(|e| {
+                        DataError::Query(format!(
+                            "Failed to get nullable flag for table '{}.{}': {}",
+                            schema_name, table_name, e
+                        ))
+                    })? == "YES",
                     default_value: row.try_get("column_default").ok(),
                     is_primary_key: row.try_get("is_primary_key").unwrap_or(false),
                 })
@@ -542,7 +580,11 @@ impl DatabaseAdapter for PostgresAdapter {
         })
     }
 
-    async fn test_connection(&self, config: &ConnectionConfig, password: Option<&str>) -> Result<bool> {
+    async fn test_connection(
+        &self,
+        config: &ConnectionConfig,
+        password: Option<&str>,
+    ) -> Result<bool> {
         let connection_string = Self::build_connection_string(config, password)?;
 
         match PgPoolOptions::new()
@@ -568,7 +610,9 @@ impl DatabaseAdapter for PostgresAdapter {
     async fn get_server_info(&self) -> Result<ServerInfo> {
         info!("Retrieving PostgreSQL server information");
 
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
         // Get version
@@ -577,7 +621,8 @@ impl DatabaseAdapter for PostgresAdapter {
             .await
             .map_err(|e| DataError::Query(format!("Failed to get server version: {}", e)))?;
 
-        let version: String = version_result.try_get(0)
+        let version: String = version_result
+            .try_get(0)
             .map_err(|e| DataError::Query(format!("Failed to parse version: {}", e)))?;
 
         // Get additional server info
@@ -606,7 +651,9 @@ impl DatabaseAdapter for PostgresAdapter {
     async fn get_database_metadata(&self, database_name: &str) -> Result<DatabaseMetadata> {
         info!("Retrieving metadata for database: {}", database_name);
 
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
         let query = "
@@ -625,7 +672,12 @@ impl DatabaseAdapter for PostgresAdapter {
             .bind(database_name)
             .fetch_one(pool)
             .await
-            .map_err(|e| DataError::Query(format!("Failed to get database metadata for '{}': {}", database_name, e)))?;
+            .map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to get database metadata for '{}': {}",
+                    database_name, e
+                ))
+            })?;
 
         let mut extra_info = std::collections::HashMap::new();
         if let Ok(collation) = result.try_get::<String, _>("collation") {
@@ -636,7 +688,9 @@ impl DatabaseAdapter for PostgresAdapter {
         }
 
         Ok(DatabaseMetadata {
-            name: result.try_get("name").unwrap_or_else(|_| database_name.to_string()),
+            name: result
+                .try_get("name")
+                .unwrap_or_else(|_| database_name.to_string()),
             size_bytes: result.try_get("size_bytes").ok(),
             owner: result.try_get("owner").ok(),
             encoding: result.try_get("encoding").ok(),
@@ -646,11 +700,20 @@ impl DatabaseAdapter for PostgresAdapter {
     }
 
     #[instrument(skip(self), fields(table = %table_name))]
-    async fn get_table_metadata(&self, table_name: &str, schema: Option<&str>) -> Result<TableMetadata> {
+    async fn get_table_metadata(
+        &self,
+        table_name: &str,
+        schema: Option<&str>,
+    ) -> Result<TableMetadata> {
         let schema_name = schema.unwrap_or("public");
-        info!("Retrieving metadata for table: {}.{}", schema_name, table_name);
+        info!(
+            "Retrieving metadata for table: {}.{}",
+            schema_name, table_name
+        );
 
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
         let query = "
@@ -667,7 +730,12 @@ impl DatabaseAdapter for PostgresAdapter {
             .bind(table_name)
             .fetch_one(pool)
             .await
-            .map_err(|e| DataError::Query(format!("Failed to get table metadata for '{}.{}': {}", schema_name, table_name, e)))?;
+            .map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to get table metadata for '{}.{}': {}",
+                    schema_name, table_name, e
+                ))
+            })?;
 
         // Try to get row count from stats, but it may not be available for new tables
         let row_count_query = "
@@ -696,9 +764,14 @@ impl DatabaseAdapter for PostgresAdapter {
     #[instrument(skip(self), fields(table = %table_name))]
     async fn get_indexes(&self, table_name: &str, schema: Option<&str>) -> Result<Vec<IndexInfo>> {
         let schema_name = schema.unwrap_or("public");
-        info!("Retrieving indexes for table: {}.{}", schema_name, table_name);
+        info!(
+            "Retrieving indexes for table: {}.{}",
+            schema_name, table_name
+        );
 
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
         let query = "
@@ -725,14 +798,24 @@ impl DatabaseAdapter for PostgresAdapter {
             .bind(schema_name)
             .fetch_all(pool)
             .await
-            .map_err(|e| DataError::Query(format!("Failed to get indexes for '{}.{}': {}", schema_name, table_name, e)))?;
+            .map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to get indexes for '{}.{}': {}",
+                    schema_name, table_name, e
+                ))
+            })?;
 
         let mut indexes = Vec::new();
         for row in results {
             indexes.push(IndexInfo {
                 name: row.try_get("index_name").unwrap_or_default(),
-                table_name: row.try_get("table_name").unwrap_or_else(|_| table_name.to_string()),
-                schema: Some(row.try_get("schema_name").unwrap_or_else(|_| schema_name.to_string())),
+                table_name: row
+                    .try_get("table_name")
+                    .unwrap_or_else(|_| table_name.to_string()),
+                schema: Some(
+                    row.try_get("schema_name")
+                        .unwrap_or_else(|_| schema_name.to_string()),
+                ),
                 columns: row.try_get::<Vec<String>, _>("columns").unwrap_or_default(),
                 is_unique: row.try_get("is_unique").unwrap_or(false),
                 is_primary: row.try_get("is_primary").unwrap_or(false),
@@ -740,16 +823,30 @@ impl DatabaseAdapter for PostgresAdapter {
             });
         }
 
-        debug!("Found {} indexes for {}.{}", indexes.len(), schema_name, table_name);
+        debug!(
+            "Found {} indexes for {}.{}",
+            indexes.len(),
+            schema_name,
+            table_name
+        );
         Ok(indexes)
     }
 
     #[instrument(skip(self), fields(table = %table_name))]
-    async fn get_foreign_keys(&self, table_name: &str, schema: Option<&str>) -> Result<Vec<ForeignKeyInfo>> {
+    async fn get_foreign_keys(
+        &self,
+        table_name: &str,
+        schema: Option<&str>,
+    ) -> Result<Vec<ForeignKeyInfo>> {
         let schema_name = schema.unwrap_or("public");
-        info!("Retrieving foreign keys for table: {}.{}", schema_name, table_name);
+        info!(
+            "Retrieving foreign keys for table: {}.{}",
+            schema_name, table_name
+        );
 
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
         let query = "
@@ -784,35 +881,58 @@ impl DatabaseAdapter for PostgresAdapter {
             .bind(schema_name)
             .fetch_all(pool)
             .await
-            .map_err(|e| DataError::Query(format!("Failed to get foreign keys for '{}.{}': {}", schema_name, table_name, e)))?;
+            .map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to get foreign keys for '{}.{}': {}",
+                    schema_name, table_name, e
+                ))
+            })?;
 
         // Group by constraint name since one FK can span multiple columns
-        let mut fk_map: std::collections::HashMap<String, ForeignKeyInfo> = std::collections::HashMap::new();
+        let mut fk_map: std::collections::HashMap<String, ForeignKeyInfo> =
+            std::collections::HashMap::new();
 
         for row in results {
             let fk_name: String = row.try_get("constraint_name").unwrap_or_default();
             let column: String = row.try_get("column_name").unwrap_or_default();
             let ref_column: String = row.try_get("foreign_column_name").unwrap_or_default();
 
-            fk_map.entry(fk_name.clone()).or_insert_with(|| ForeignKeyInfo {
-                name: fk_name,
-                table_name: row.try_get("table_name").unwrap_or_else(|_| table_name.to_string()),
-                schema: Some(row.try_get("table_schema").unwrap_or_else(|_| schema_name.to_string())),
-                columns: Vec::new(),
-                referenced_table: row.try_get("foreign_table_name").unwrap_or_default(),
-                referenced_schema: row.try_get("foreign_table_schema").ok(),
-                referenced_columns: Vec::new(),
-                on_delete: row.try_get("delete_rule").ok(),
-                on_update: row.try_get("update_rule").ok(),
-            }).columns.push(column);
+            fk_map
+                .entry(fk_name.clone())
+                .or_insert_with(|| ForeignKeyInfo {
+                    name: fk_name,
+                    table_name: row
+                        .try_get("table_name")
+                        .unwrap_or_else(|_| table_name.to_string()),
+                    schema: Some(
+                        row.try_get("table_schema")
+                            .unwrap_or_else(|_| schema_name.to_string()),
+                    ),
+                    columns: Vec::new(),
+                    referenced_table: row.try_get("foreign_table_name").unwrap_or_default(),
+                    referenced_schema: row.try_get("foreign_table_schema").ok(),
+                    referenced_columns: Vec::new(),
+                    on_delete: row.try_get("delete_rule").ok(),
+                    on_update: row.try_get("update_rule").ok(),
+                })
+                .columns
+                .push(column);
 
-            if let Some(fk) = fk_map.get_mut(&row.try_get::<String, _>("constraint_name").unwrap_or_default()) {
+            if let Some(fk) = fk_map.get_mut(
+                &row.try_get::<String, _>("constraint_name")
+                    .unwrap_or_default(),
+            ) {
                 fk.referenced_columns.push(ref_column);
             }
         }
 
         let foreign_keys: Vec<ForeignKeyInfo> = fk_map.into_values().collect();
-        debug!("Found {} foreign keys for {}.{}", foreign_keys.len(), schema_name, table_name);
+        debug!(
+            "Found {} foreign keys for {}.{}",
+            foreign_keys.len(),
+            schema_name,
+            table_name
+        );
         Ok(foreign_keys)
     }
 
@@ -821,7 +941,9 @@ impl DatabaseAdapter for PostgresAdapter {
         let schema_name = schema.unwrap_or("public");
         info!("Retrieving views for schema: {}", schema_name);
 
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
         let query = "
@@ -837,7 +959,12 @@ impl DatabaseAdapter for PostgresAdapter {
             .bind(schema_name)
             .fetch_all(pool)
             .await
-            .map_err(|e| DataError::Query(format!("Failed to get views for schema '{}': {}", schema_name, e)))?;
+            .map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to get views for schema '{}': {}",
+                    schema_name, e
+                ))
+            })?;
 
         let mut views = Vec::new();
         for row in results {
@@ -853,11 +980,20 @@ impl DatabaseAdapter for PostgresAdapter {
     }
 
     #[instrument(skip(self), fields(view = %view_name))]
-    async fn get_view_definition(&self, view_name: &str, schema: Option<&str>) -> Result<Option<String>> {
+    async fn get_view_definition(
+        &self,
+        view_name: &str,
+        schema: Option<&str>,
+    ) -> Result<Option<String>> {
         let schema_name = schema.unwrap_or("public");
-        info!("Retrieving definition for view: {}.{}", schema_name, view_name);
+        info!(
+            "Retrieving definition for view: {}.{}",
+            schema_name, view_name
+        );
 
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
         let query = "
@@ -871,7 +1007,12 @@ impl DatabaseAdapter for PostgresAdapter {
             .bind(schema_name)
             .fetch_optional(pool)
             .await
-            .map_err(|e| DataError::Query(format!("Failed to get view definition for '{}.{}': {}", schema_name, view_name, e)))?;
+            .map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to get view definition for '{}.{}': {}",
+                    schema_name, view_name, e
+                ))
+            })?;
 
         Ok(result.and_then(|row| row.try_get("view_definition").ok()))
     }
@@ -881,7 +1022,9 @@ impl DatabaseAdapter for PostgresAdapter {
         let schema_name = schema.unwrap_or("public");
         info!("Retrieving stored procedures for schema: {}", schema_name);
 
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| DataError::Connection("Not connected to database".to_string()))?;
 
         let query = "
@@ -901,7 +1044,12 @@ impl DatabaseAdapter for PostgresAdapter {
             .bind(schema_name)
             .fetch_all(pool)
             .await
-            .map_err(|e| DataError::Query(format!("Failed to get stored procedures for schema '{}': {}", schema_name, e)))?;
+            .map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to get stored procedures for schema '{}': {}",
+                    schema_name, e
+                ))
+            })?;
 
         let mut procedures = Vec::new();
         for row in results {
@@ -913,7 +1061,11 @@ impl DatabaseAdapter for PostgresAdapter {
             });
         }
 
-        debug!("Found {} procedures in schema {}", procedures.len(), schema_name);
+        debug!(
+            "Found {} procedures in schema {}",
+            procedures.len(),
+            schema_name
+        );
         Ok(procedures)
     }
 
@@ -1009,15 +1161,12 @@ impl DatabaseAdapter for PostgresAdapter {
         }
 
         // Execute the query
-        let result = query_builder
-            .execute(pool)
-            .await
-            .map_err(|e| {
-                DataError::Query(format!(
-                    "Failed to bulk insert into {}.{}: {}",
-                    schema_name, table_name, e
-                ))
-            })?;
+        let result = query_builder.execute(pool).await.map_err(|e| {
+            DataError::Query(format!(
+                "Failed to bulk insert into {}.{}: {}",
+                schema_name, table_name, e
+            ))
+        })?;
 
         let rows_affected = result.rows_affected();
         let elapsed = start.elapsed();
@@ -1101,15 +1250,12 @@ impl DatabaseAdapter for PostgresAdapter {
                 };
             }
 
-            let result = query_builder
-                .execute(pool)
-                .await
-                .map_err(|e| {
-                    DataError::Query(format!(
-                        "Failed to bulk update {}.{}: {}",
-                        schema_name, table_name, e
-                    ))
-                })?;
+            let result = query_builder.execute(pool).await.map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to bulk update {}.{}: {}",
+                    schema_name, table_name, e
+                ))
+            })?;
 
             total_affected += result.rows_affected();
         }
@@ -1169,15 +1315,12 @@ impl DatabaseAdapter for PostgresAdapter {
 
             debug!("Bulk delete query: {}", query);
 
-            let result = sqlx::query(&query)
-                .execute(pool)
-                .await
-                .map_err(|e| {
-                    DataError::Query(format!(
-                        "Failed to bulk delete from {}.{}: {}",
-                        schema_name, table_name, e
-                    ))
-                })?;
+            let result = sqlx::query(&query).execute(pool).await.map_err(|e| {
+                DataError::Query(format!(
+                    "Failed to bulk delete from {}.{}: {}",
+                    schema_name, table_name, e
+                ))
+            })?;
 
             total_affected += result.rows_affected();
         }
@@ -1231,7 +1374,8 @@ mod tests {
     #[test]
     fn test_connection_string_basic() {
         let config = test_config();
-        let conn_str = PostgresAdapter::build_connection_string(&config, Some("password123")).unwrap();
+        let conn_str =
+            PostgresAdapter::build_connection_string(&config, Some("password123")).unwrap();
         assert!(conn_str.contains("postgresql://"));
         assert!(conn_str.contains("test_user"));
         assert!(conn_str.contains("password123"));
@@ -1245,7 +1389,8 @@ mod tests {
     fn test_connection_string_with_ssl() {
         let mut config = test_config();
         config.use_ssl = true;
-        let conn_str = PostgresAdapter::build_connection_string(&config, Some("password123")).unwrap();
+        let conn_str =
+            PostgresAdapter::build_connection_string(&config, Some("password123")).unwrap();
         assert!(conn_str.contains("sslmode=require"));
     }
 
@@ -1430,9 +1575,7 @@ mod tests {
             vec![QueryValue::Int(2), QueryValue::Text("Bob".to_string())],
         ];
 
-        let result = adapter
-            .bulk_insert("users", &columns, &rows, None)
-            .await;
+        let result = adapter.bulk_insert("users", &columns, &rows, None).await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), DataError::Connection(_)));
     }
