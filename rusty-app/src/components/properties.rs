@@ -1,9 +1,10 @@
 //! Properties component for displaying object details
 
 use crate::components::{Component, ComponentAction, ComponentId, PropertiesAction};
+use crate::icons;
 use crate::theme::ThemeColors;
-use iced::widget::{column, container, scrollable, text};
-use iced::{Element, Fill};
+use iced::widget::{column, container, row, scrollable, text};
+use iced::{Alignment, Element, Fill};
 
 /// Property key-value pair
 #[derive(Debug, Clone, PartialEq)]
@@ -96,7 +97,12 @@ impl Component for PropertiesComponent {
 
     fn view(&self, theme: ThemeColors) -> Element<ComponentAction> {
         let mut content_col = column![
-            text("Properties").size(12).color(theme.text),
+            row![
+                text(icons::symbol_key()).font(icons::font()).size(14).color(theme.accent),
+                text("Properties").size(12).color(theme.text),
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center),
             text("─────────").size(10).color(theme.border),
         ]
         .spacing(10);

@@ -6,13 +6,14 @@
 //! The panel dynamically generates tabs from enabled views in the ViewRegistry.
 
 use crate::components::{ComponentAction, ComponentId};
+use crate::icons;
 use crate::theme::ThemeColors;
 use crate::views::{RegionId, ViewRegistry};
 use iced::mouse::Interaction;
 use iced::widget::{
     button, column, container, horizontal_space, mouse_area, row, scrollable, text,
 };
-use iced::{Border, Element, Fill, Length};
+use iced::{Alignment, Border, Element, Fill, Length};
 
 /// Minimum width for the left panel in pixels
 pub const MIN_WIDTH: f32 = 120.0;
@@ -25,6 +26,9 @@ pub const DEFAULT_WIDTH: f32 = 200.0;
 
 /// Width of the resize handle in pixels
 const RESIZE_HANDLE_WIDTH: f32 = 4.0;
+
+/// Width of the collapsed icon rail in pixels
+pub const ICON_RAIL_WIDTH: f32 = 28.0;
 
 /// Available tabs in the left panel
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,22 +75,77 @@ impl LeftPanel {
     /// Render the left panel with current width and active component
     ///
     /// Dynamically generates tabs from enabled views in ViewRegistry.
+    /// When `collapsed` is true, renders a narrow icon rail with only the expand button.
     pub fn view<'a, Message: 'a + Clone + From<ComponentAction>>(
         &'a self,
         width: f32,
+        collapsed: bool,
         active_component: Option<ComponentId>,
         view_registry: &'a ViewRegistry,
         on_tab_click: impl Fn(ComponentId) -> Message + 'a,
+        on_toggle: Message,
         on_resize_start: Message,
     ) -> Element<'a, Message> {
         let theme = self.theme;
 
-        // Panel content with dynamic tab bar from ViewRegistry
-        let content = column![
+        if collapsed {
+            // Collapsed: narrow rail with only the expand chevron
+            let toggle_btn = button(
+                text(icons::chevron_right())
+                    .font(icons::font())
+                    .size(14)
+                    .color(theme.text_secondary),
+            )
+            .padding([6, 6])
+            .style(move |_theme, _status| button::Style {
+                background: None,
+                text_color: theme.text_secondary,
+                border: Border::default(),
+                ..Default::default()
+            })
+            .on_press(on_toggle);
+
+            return container(column![toggle_btn].align_x(Alignment::Center))
+                .width(Length::Fixed(ICON_RAIL_WIDTH))
+                .height(Fill)
+                .style(move |_theme| container::Style {
+                    background: Some(theme.background.into()),
+                    border: Border {
+                        color: theme.border,
+                        width: 1.0,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                })
+                .into();
+        }
+
+        // Expanded: collapse button alongside the tab bar header
+        let collapse_btn = button(
+            text(icons::chevron_left())
+                .font(icons::font())
+                .size(14)
+                .color(theme.text_secondary),
+        )
+        .padding([4, 6])
+        .style(move |_theme, _status| button::Style {
+            background: None,
+            text_color: theme.text_secondary,
+            border: Border::default(),
+            ..Default::default()
+        })
+        .on_press(on_toggle);
+
+        let header_row = row![
             self.tab_bar(active_component, view_registry, on_tab_click),
-            self.tab_content(active_component, view_registry),
+            collapse_btn,
         ]
-        .spacing(0);
+        .spacing(0)
+        .align_y(Alignment::Center);
+
+        // Panel content with tab bar header and tab content
+        let content = column![header_row, self.tab_content(active_component, view_registry)]
+            .spacing(0);
 
         // Resize handle (vertical bar on right edge) - draggable
         let resize_handle_visual = container(horizontal_space())

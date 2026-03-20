@@ -86,6 +86,7 @@ struct DatabaseIDE {
     test_result: Option<Result<(), String>>,
     open_menu: Option<MenuItem>,
     show_left_panel: bool,
+    left_panel_collapsed: bool,
     view_registry: ViewRegistry,
     showing_settings_editor: bool,
     settings_editor: SettingsEditor,
@@ -241,6 +242,7 @@ impl Default for DatabaseIDE {
             test_result: None,
             open_menu: None,
             show_left_panel: ui_prefs.show_left_panel,
+            left_panel_collapsed: false,
             view_registry,
             showing_settings_editor: false,
             settings_editor: SettingsEditor::new(theme),
@@ -299,6 +301,7 @@ enum Message {
     MenuAction(MenuAction),
     CloseMenu,
     LeftPanelTabClicked(ComponentId),
+    ToggleLeftPanel,
     ResizeStart,
     ResizeMove(f32),
     ResizeEnd,
@@ -435,6 +438,10 @@ impl DatabaseIDE {
             }
             Message::LeftPanelTabClicked(component_id) => {
                 self.active_component = Some(component_id);
+                Task::none()
+            }
+            Message::ToggleLeftPanel => {
+                self.left_panel_collapsed = !self.left_panel_collapsed;
                 Task::none()
             }
             Message::ResizeStart => {
@@ -1760,11 +1767,18 @@ impl DatabaseIDE {
     }
 
     fn left_panel(&self) -> Element<'_, Message> {
+        let width = if self.left_panel_collapsed {
+            rusty_app::left_panel::ICON_RAIL_WIDTH
+        } else {
+            self.panel_width
+        };
         self.left_panel.view(
-            self.panel_width,
+            width,
+            self.left_panel_collapsed,
             self.active_component,
             &self.view_registry,
             Message::LeftPanelTabClicked,
+            Message::ToggleLeftPanel,
             Message::ResizeStart,
         )
     }

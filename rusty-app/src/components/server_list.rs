@@ -2,6 +2,7 @@
 
 use crate::button_styles;
 use crate::components::{Component, ComponentAction, ComponentId, ServerListAction};
+use crate::icons;
 use crate::theme::ThemeColors;
 use iced::widget::{button, column, container, horizontal_space, row, scrollable, text};
 use iced::{Border, Element, Fill};
@@ -83,11 +84,13 @@ impl Component for ServerListComponent {
 
         let mut content_col = column![
             row![
+                text(icons::server()).font(icons::font()).size(14).color(theme.accent),
                 text("Servers").size(12).color(theme.text),
                 horizontal_space(),
                 new_conn_btn,
             ]
-            .spacing(5),
+            .spacing(6)
+            .align_y(iced::Alignment::Center),
             text("─────────").size(10).color(theme.border),
         ]
         .spacing(10);
@@ -144,6 +147,7 @@ mod tests {
             username: Some("user".to_string()),
             use_ssl: false,
             parameters: std::collections::HashMap::new(),
+            pool_config: None,
         }
     }
 

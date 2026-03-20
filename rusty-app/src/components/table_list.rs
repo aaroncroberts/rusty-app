@@ -1,9 +1,10 @@
 //! Table list component for displaying database tables
 
 use crate::components::{Component, ComponentAction, ComponentId, TableListAction};
+use crate::icons;
 use crate::theme::ThemeColors;
-use iced::widget::{button, column, container, scrollable, text};
-use iced::{Border, Element, Fill};
+use iced::widget::{button, column, container, row, scrollable, text};
+use iced::{Alignment, Border, Element, Fill};
 
 /// Metadata for a database table
 #[derive(Debug, Clone, PartialEq)]
@@ -85,7 +86,12 @@ impl Component for TableListComponent {
 
     fn view(&self, theme: ThemeColors) -> Element<ComponentAction> {
         let mut content_col = column![
-            text("Tables").size(12).color(theme.text),
+            row![
+                text(icons::table()).font(icons::font()).size(14).color(theme.accent),
+                text("Tables").size(12).color(theme.text),
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center),
             text("─────────").size(10).color(theme.border),
         ]
         .spacing(10);
