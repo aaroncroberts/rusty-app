@@ -61,6 +61,7 @@ pub fn main() -> iced::Result {
         .subscription(DatabaseIDE::subscription)
         .theme(|_| Theme::TokyoNightStorm)
         .window_size((1280.0, 800.0))
+        .font(rusty_app::icons::FONT_BYTES)
         .run()
 }
 

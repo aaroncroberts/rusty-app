@@ -25,6 +25,9 @@ tracing = "0.1"
 # UI Framework - Iced for modern, GPU-accelerated desktop UI
 iced = { version = "0.13", features = ["tokio", "debug"] }
 
+# Icons — Nerd Font (Codicons subset) for iced text widgets
+nerd_font = { version = "0.2.8", features = ["iced"] }
+
 # Async runtime
 tokio = { workspace = true }
 
