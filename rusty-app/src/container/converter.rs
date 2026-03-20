@@ -55,7 +55,7 @@ impl ContainerCredentials {
 /// # Example
 /// ```
 /// use rusty_app::container::converter::container_db_type_to_enum;
-/// use rusty_data::adapter::DatabaseType;
+/// use arni::DatabaseType;
 ///
 /// assert_eq!(container_db_type_to_enum("postgres"), Some(DatabaseType::Postgres));
 /// assert_eq!(container_db_type_to_enum("mysql"), Some(DatabaseType::MySQL));

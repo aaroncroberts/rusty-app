@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn test_env_filter_with_target() {
         // Test filter with target specification
-        let filter = EnvFilter::try_new("rusty_data=debug,info");
+        let filter = EnvFilter::try_new("rusty_app=debug,info");
         assert!(filter.is_ok());
     }
 
